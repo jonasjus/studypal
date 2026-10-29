@@ -17,7 +17,7 @@ from . import config as config_mod
 from . import paths
 from .config import Config, ConfigError
 from .logic.dates import DateParseError, format_date, parse_date, parse_datetime, parse_minutes
-from .models import COURSE_COLORS, Course, Deadline, DeadlineKind, Priority, Session, Topic, TopicStatus, WeakSpot
+from .models import COURSE_COLORS, Course, Deadline, DeadlineKind, Priority, Session, Source, Topic, TopicStatus, WeakSpot
 from .storage import Store, StorageError
 
 console = Console(highlight=False)
@@ -282,6 +282,112 @@ def theme(
             raise StorageError(f"There's no theme called {name!r}. Run study theme to see them all.")
         store.set_setting("theme", key)
     console.print(f"The dashboard will use {themes.BY_NAME[key].label}.")
+
+
+# ---------- reading lists ----------
+
+@app.command()
+def reading(course: Annotated[str, typer.Argument(help="Course code or name.")]) -> None:
+    """Show a course's reading list: what's needed, what's optional, what you've read."""
+    from .logic.reading import progress
+
+    with opened() as (store, _):
+        c = store.find_course(course)
+        topics = {t.id: t.title for t in store.list_topics(c.id)}
+        tree = store.reading_list(c.id)
+    if not tree:
+        console.print(f"{c.code} has no reading list yet. Add a book with [bold]study add source {c.code} \"Title\"[/].")
+        return
+    total = progress(s for _, chs in tree for _, ss in chs for s in ss)
+    console.print(Text.assemble((c.code, f"bold {c.color}"), f"  reading: {total.read}/{total.required} needed sections read"))
+    for source, chapters in tree:
+        sp = progress(s for _, ss in chapters for s in ss)
+        console.print(Text.assemble("\n", (source.title, "bold"), (f" · {source.author}" if source.author else "", "dim"),
+                                    (f"  {sp.read}/{sp.required}", "dim")))
+        for chapter, sections in chapters:
+            cp = progress(sections)
+            line = Text(f"  {chapter.number}  {chapter.title}".rstrip())
+            if chapter.topic_id in topics:
+                line.append(f"  → {topics[chapter.topic_id]}", style="blue")
+            line.append(f"  {cp.read}/{cp.required}", style="green" if cp.complete else "dim")
+            console.print(line)
+            for s in sections:
+                mark = "[x]" if s.read else "[ ]" if s.required else "( )"
+                console.print(Text(f"      {mark} {s.number}  {s.title}".rstrip() + ("  optional" if not s.required else ""),
+                                   style="dim" if s.read or not s.required else ""))
+
+
+@app.command("read")
+def read_sections(
+    course: Annotated[str, typer.Argument(help="Course code or name.")],
+    sections: Annotated[list[str], typer.Argument(help="Sections you've read, e.g. 6.1 6.3-6.5.")],
+    source: Annotated[Optional[str], typer.Option("--source", help="Which book, if the numbers appear in more than one.")] = None,
+) -> None:
+    """Tick sections off the reading list."""
+    from .logic.reading import ReadingParseError, parse_section_ranges
+
+    with opened() as (store, _):
+        c = store.find_course(course)
+        try:
+            numbers = parse_section_ranges(" ".join(sections))
+        except ReadingParseError as e:
+            raise StorageError(str(e)) from None
+        src = store.find_source(c.id, source) if source else None
+        marked = store.mark_read(c.id, numbers, src.id if src else None)
+        total = store.reading_progress(c.id)
+    console.print(f"Read {', '.join(s.number for s in marked)}. {c.code}: {total.read}/{total.required} needed sections read.")
+
+
+@add_app.command("source")
+def add_source(
+    course: Annotated[str, typer.Argument(help="Course code or name.")],
+    title: Annotated[str, typer.Argument(help="Book or notes title.")],
+    author: Annotated[str, typer.Option("--author", help="Author(s).")] = "",
+    toc: Annotated[Optional[Path], typer.Option("--toc", help="A text file with the table of contents to import.")] = None,
+    optional: Annotated[bool, typer.Option("--optional", help="Mark imported sections optional.")] = False,
+) -> None:
+    """Add a book or notes to a course's reading list."""
+    from .logic.reading import ReadingParseError, parse_toc
+
+    with opened() as (store, _):
+        c = store.find_course(course)
+        chapters = None
+        if toc is not None:
+            try:
+                chapters = parse_toc(toc.read_text(encoding="utf-8"))
+            except (OSError, ReadingParseError) as e:
+                raise StorageError(f"Couldn't use {toc}: {e}") from None
+        s = store.add_source(Source(c.id, title, author))
+        if chapters:
+            n_chapters, n_sections = store.import_toc(s.id, chapters, required=not optional)
+            console.print(f"Added {s.title!r} to {c.code} with {n_chapters} chapters and {n_sections} sections.")
+        else:
+            console.print(f"Added {s.title!r} to {c.code}. Add sections with study add chapter {c.code} 6 --sections 1-5.")
+
+
+@add_app.command("chapter")
+def add_chapter(
+    course: Annotated[str, typer.Argument(help="Course code or name.")],
+    number: Annotated[str, typer.Argument(help="Chapter number, e.g. 6.")],
+    title: Annotated[str, typer.Argument(help="Chapter title.")] = "",
+    sections: Annotated[str, typer.Option("--sections", "-s", help="e.g. '6.1-6.5, 6.7' or '1-5'.")] = "",
+    source: Annotated[Optional[str], typer.Option("--source", help="Which book (needed if the course has more than one).")] = None,
+    topic: Annotated[Optional[str], typer.Option("--topic", "-t", help="Topic this chapter counts toward.")] = None,
+    optional: Annotated[bool, typer.Option("--optional", help="Mark these sections optional.")] = False,
+) -> None:
+    """Add a chapter (or more sections to one) on the reading list."""
+    from .logic.reading import ReadingParseError, parse_section_ranges
+
+    with opened() as (store, _):
+        c = store.find_course(course)
+        src = store.find_source(c.id, source)
+        t = resolve_topic(store, c, topic)
+        try:
+            numbers = parse_section_ranges(sections, number) if sections else []
+        except ReadingParseError as e:
+            raise StorageError(str(e)) from None
+        chapter, added = store.add_chapter(src.id, number, title, numbers, t.id if t else None, not optional)
+    console.print(f"Chapter {chapter.number} of {src.title!r}: {added} new section{'s' if added != 1 else ''}.")
 
 
 # ---------- notify / export ----------

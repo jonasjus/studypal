@@ -14,6 +14,7 @@ from textual.widgets import ListItem, ListView, Static
 from ..dashboard import CourseSummary
 from ..logic.countdown import Urgency, countdown, urgency
 from ..logic.stats import days_since, format_minutes
+from ..logic.reading import ReadingProgress
 from ..logic.timeline import CramProgress, Phase
 from ..models import Course, Deadline, Priority, Session, Topic, TopicStatus, WeakSpot
 from .. import themes
@@ -106,6 +107,8 @@ class CourseRow:
             facts.append(f"{s.stale_topics} stale")
         if s.open_weak:
             facts.append(f"{s.open_weak} weak spot{'s' if s.open_weak != 1 else ''}")
+        if s.reading.required:
+            facts.append(f"reading {s.reading.read}/{s.reading.required}")
         facts.append(f"{format_minutes(s.week_minutes)} this week")
         yield Text("  " + " · ".join(facts), style=MUTED, overflow="ellipsis", no_wrap=True)
 
@@ -187,13 +190,14 @@ def weak_row(w: WeakSpot, now: datetime, course: Course | None, topic: Topic | N
     return text
 
 
-def topic_row(t: Topic, today: date, stale_after: int) -> Table:
+def topic_row(t: Topic, today: date, stale_after: int, reading: ReadingProgress | None = None) -> Table:
     glyph, style = STATUS_GLYPH[t.status], status_style(t.status)
     grid = Table.grid(expand=True, padding=(0, 1))
     grid.add_column(width=2, no_wrap=True)
     grid.add_column(ratio=1, no_wrap=True, overflow="ellipsis")
     grid.add_column(width=12, no_wrap=True)
     grid.add_column(width=6, no_wrap=True)
+    grid.add_column(width=10, no_wrap=True, justify="right")
     grid.add_column(width=16, no_wrap=True, justify="right")
     since = days_since(t.last_studied, today)
     if since is None:
@@ -206,9 +210,18 @@ def topic_row(t: Topic, today: date, stale_after: int) -> Table:
         Text(t.title),
         Text(t.status.label, style=style),
         Text("●" * t.confidence + "○" * (5 - t.confidence), style=themes.active().info),
+        reading_cell(reading),
         studied,
     )
     return grid
+
+
+def reading_cell(reading: ReadingProgress | None) -> Text:
+    """'read 3/5' for a topic with reading linked to it; green once it's all read."""
+    if reading is None or not reading.required:
+        return Text("")
+    return Text(f"read {reading.read}/{reading.required}",
+                style=themes.active().success if reading.complete else MUTED)
 
 
 def session_row(s: Session, topic: Topic | None) -> Text:

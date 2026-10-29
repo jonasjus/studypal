@@ -54,6 +54,18 @@ def to_markdown(store: Store, now: datetime | None = None) -> str:
         out += _table(["Due", "Deadline", "Type", "Done"],
                       [[format_datetime(d.due_at), d.title, d.kind.value, "yes" if d.done else ""]
                        for d in store.list_deadlines(course.id, include_done=True)])
+        reading = store.reading_list(course.id)
+        if reading:
+            out += ["### Reading", ""]
+            for source, chapters in reading:
+                out += [f"**{source.title}**" + (f" · {source.author}" if source.author else ""), ""]
+                for chapter, sections in chapters:
+                    topic = topics_by_id[chapter.topic_id].title if chapter.topic_id in topics_by_id else ""
+                    out.append(f"- {chapter.number} {chapter.title}".rstrip() + (f" → {topic}" if topic else ""))
+                    for s in sections:
+                        box = "x" if s.read else " "
+                        out.append(f"  - [{box}] {s.number} {s.title}".rstrip() + ("" if s.required else " (optional)"))
+                out.append("")
         out += ["### Sessions", ""]
         out += _table(["Started", "Minutes", "Topic", "Note"],
                       [[format_datetime(s.started_at), s.minutes,
@@ -68,7 +80,7 @@ def to_markdown(store: Store, now: datetime | None = None) -> str:
 
 
 def to_csv(store: Store, folder: Path) -> list[Path]:
-    """Write courses.csv, topics.csv, weak_spots.csv, deadlines.csv and sessions.csv into `folder`."""
+    """Write courses.csv, topics.csv, weak_spots.csv, deadlines.csv, reading.csv and sessions.csv into `folder`."""
     folder.mkdir(parents=True, exist_ok=True)
     tables: dict[str, tuple[list[str], list[list[object]]]] = {
         "courses": (["id", "code", "name", "cram_start", "exam_date", "color", "notes"],
@@ -84,6 +96,13 @@ def to_csv(store: Store, folder: Path) -> list[Path]:
         "deadlines": (["id", "course_id", "title", "due_at", "type", "done"],
                       [[d.id, d.course_id or "", d.title, d.due_at.isoformat(timespec="minutes"), d.kind.value, int(d.done)]
                        for d in store.list_deadlines(include_done=True)]),
+        "reading": (["course_id", "source", "author", "chapter", "chapter_title", "section", "section_title",
+                     "required", "read", "read_at", "topic_id"],
+                    [[c.id, src.title, src.author, ch.number, ch.title, s.number, s.title, int(s.required), int(s.read),
+                      s.read_at.isoformat(timespec="minutes") if s.read_at else "",
+                      s.topic_id if s.topic_id is not None else (ch.topic_id or "")]
+                     for c in store.list_courses() for src, chs in store.reading_list(c.id)
+                     for ch, ss in chs for s in ss]),
         "sessions": (["id", "course_id", "topic_id", "started_at", "minutes", "note"],
                      [[s.id, s.course_id, s.topic_id or "", s.started_at.isoformat(timespec="minutes"), s.minutes, s.note]
                       for s in store.list_sessions()]),

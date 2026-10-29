@@ -41,6 +41,7 @@ class SubjectScreen(CourseActions, Screen):
         Binding("plus,equals_sign", "confidence(1)", "Confidence +", show=False, key_display="+"),
         Binding("minus", "confidence(-1)", "Confidence -", show=False, key_display="-"),
         Binding("slash", "filter", "Filter", key_display="/"),
+        Binding("r", "reading", "Reading"),
     ]
 
     def __init__(self, course_id: int) -> None:
@@ -104,12 +105,16 @@ class SubjectScreen(CourseActions, Screen):
 
         q = self.filter_text
         none = "Nothing matches the filter." if q else None
+        reading = store.reading_by_topic(course.id)
         await self._fill("#topics", [
-            Row(topic_row(t, now.date(), cfg.stale_after_days), t) for t in topics
+            Row(topic_row(t, now.date(), cfg.stale_after_days, reading.get(t.id)), t) for t in topics
             if matches(q, t.title, t.status.label)
         ] or [empty_row(none or "No topics yet. Press a to add one.")])
         done = sum(1 for t in topics if t.status.is_done)
         self.query_one("#topics").border_title = f"Topics · {done}/{len(topics)} done"
+        total = store.reading_progress(course.id)
+        self.query_one("#topics").border_subtitle = (
+            f"reading {total.read}/{total.required} · r opens the list" if total.required else "r for the reading list")
 
         weak = store.list_weak_spots(course.id)
         await self._fill("#s-weak", [
@@ -181,6 +186,11 @@ class SubjectScreen(CourseActions, Screen):
             self.action_edit_course()
         else:
             self.edit_item(item)
+
+    def action_reading(self) -> None:
+        from .reading import ReadingScreen
+
+        self.app.push_screen(ReadingScreen(self.course_id, focus_topic=self.current_topic_id()))
 
     def action_edit_course(self) -> None:
         course = self.app.store.get_course(self.course_id)

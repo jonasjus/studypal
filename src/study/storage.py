@@ -14,14 +14,18 @@ from pathlib import Path
 
 from .logic import pomodoro as pomo
 from .logic.pomodoro import PomodoroRun, PomodoroSettings, PomoPhase
+from .logic.reading import ReadingProgress, TocChapter, number_key, progress
 from .models import (
     COURSE_COLORS,
     ActiveTimer,
+    Chapter,
     Course,
     Deadline,
     DeadlineKind,
     Priority,
+    Section,
     Session,
+    Source,
     Topic,
     TopicStatus,
     WeakSpot,
@@ -127,6 +131,41 @@ MIGRATIONS: list[str] = [
     create table setting (
         key    text primary key,
         value  text not null
+    );
+    """,
+    """
+    -- Reading lists: sources (books, notes) have chapters, chapters have sections.
+    -- A section counts toward its own topic if set, otherwise its chapter's topic.
+    create table source (
+        id         integer primary key,
+        course_id  integer not null references course(id) on delete cascade,
+        title      text not null,
+        author     text not null default '',
+        position   integer not null default 0
+    );
+    create index source_course on source(course_id);
+
+    create table chapter (
+        id         integer primary key,
+        source_id  integer not null references source(id) on delete cascade,
+        number     text not null,
+        title      text not null default '',
+        topic_id   integer references topic(id) on delete set null,
+        position   integer not null default 0,
+        unique (source_id, number)
+    );
+
+    create table section (
+        id          integer primary key,
+        chapter_id  integer not null references chapter(id) on delete cascade,
+        number      text not null,
+        title       text not null default '',
+        required    integer not null default 1,
+        read        integer not null default 0,
+        read_at     text,
+        topic_id    integer references topic(id) on delete set null,
+        position    integer not null default 0,
+        unique (chapter_id, number)
     );
     """,
 ]
@@ -731,6 +770,255 @@ class Store:
             blocks = pomo.stop(run, now or datetime.now(), settings)
             c.execute("delete from pomodoro_run where id = 1")
             return self._log_blocks(c, run, blocks)
+
+    # ---------- reading lists ----------
+
+    @staticmethod
+    def _source(r: sqlite3.Row) -> Source:
+        return Source(id=r["id"], course_id=r["course_id"], title=r["title"], author=r["author"])
+
+    @staticmethod
+    def _chapter(r: sqlite3.Row) -> Chapter:
+        return Chapter(id=r["id"], source_id=r["source_id"], number=r["number"], title=r["title"], topic_id=r["topic_id"])
+
+    @staticmethod
+    def _section(r: sqlite3.Row) -> Section:
+        return Section(id=r["id"], chapter_id=r["chapter_id"], number=r["number"], title=r["title"],
+                       required=bool(r["required"]), read=bool(r["read"]), read_at=_dt(r["read_at"]),
+                       topic_id=r["topic_id"])
+
+    def add_source(self, source: Source) -> Source:
+        if not source.title.strip():
+            raise StorageError("A source needs a title, e.g. the book's name.")
+        with self._tx() as c:
+            pos = c.execute("select coalesce(max(position), -1) + 1 from source where course_id = ?",
+                            (source.course_id,)).fetchone()[0]
+            cur = c.execute("insert into source (course_id, title, author, position) values (?, ?, ?, ?)",
+                            (source.course_id, source.title.strip(), source.author.strip(), pos))
+            source.id = cur.lastrowid
+        return source
+
+    def update_source(self, source: Source) -> Source:
+        if not source.title.strip():
+            raise StorageError("A source needs a title, e.g. the book's name.")
+        with self._tx() as c:
+            c.execute("update source set title = ?, author = ? where id = ?",
+                      (source.title.strip(), source.author.strip(), source.id))
+        return source
+
+    def delete_source(self, source_id: int) -> None:
+        with self._tx() as c:
+            c.execute("delete from source where id = ?", (source_id,))
+
+    def get_source(self, source_id: int) -> Source | None:
+        r = self.conn.execute("select * from source where id = ?", (source_id,)).fetchone()
+        return self._source(r) if r else None
+
+    def list_sources(self, course_id: int) -> list[Source]:
+        rows = self.conn.execute("select * from source where course_id = ? order by position, id", (course_id,))
+        return [self._source(r) for r in rows]
+
+    def find_source(self, course_id: int, ref: str | None) -> Source:
+        """By title prefix (case-insensitive); with no ref, the course's only source."""
+        sources = self.list_sources(course_id)
+        if not sources:
+            raise StorageError("That course has no reading list yet. Add a source (a book or notes) first.")
+        if ref is None:
+            if len(sources) == 1:
+                return sources[0]
+            raise StorageError(f"That course has {len(sources)} sources; say which: {', '.join(s.title for s in sources)}.")
+        found = [s for s in sources if s.title.lower().startswith(ref.strip().lower())]
+        if len(found) == 1:
+            return found[0]
+        raise StorageError(f"No source matches {ref!r}." if not found else f"{ref!r} matches more than one source.")
+
+    def _chapter_for(self, c: sqlite3.Connection, source_id: int, number: str, title: str = "",
+                     topic_id: int | None = None) -> int:
+        """The chapter with this number in the source, created if it's new (an empty title never overwrites)."""
+        row = c.execute("select id, title from chapter where source_id = ? and number = ?", (source_id, number)).fetchone()
+        if row:
+            if title and not row["title"]:
+                c.execute("update chapter set title = ? where id = ?", (title, row["id"]))
+            if topic_id is not None:
+                c.execute("update chapter set topic_id = ? where id = ?", (topic_id, row["id"]))
+            return row["id"]
+        pos = c.execute("select coalesce(max(position), -1) + 1 from chapter where source_id = ?", (source_id,)).fetchone()[0]
+        return c.execute("insert into chapter (source_id, number, title, topic_id, position) values (?, ?, ?, ?, ?)",
+                         (source_id, number, title, topic_id, pos)).lastrowid
+
+    def _add_sections(self, c: sqlite3.Connection, chapter_id: int, sections: list[tuple[str, str]],
+                      required: bool) -> int:
+        """Adds the sections the chapter doesn't have yet (keeping existing ones as they are). Returns how many were new."""
+        existing = {r[0] for r in c.execute("select number from section where chapter_id = ?", (chapter_id,))}
+        pos = c.execute("select coalesce(max(position), -1) + 1 from section where chapter_id = ?", (chapter_id,)).fetchone()[0]
+        added = 0
+        for number, title in sections:
+            if number in existing:
+                if title:
+                    c.execute("update section set title = ? where chapter_id = ? and number = ? and title = ''",
+                              (title, chapter_id, number))
+                continue
+            c.execute("insert into section (chapter_id, number, title, required, position) values (?, ?, ?, ?, ?)",
+                      (chapter_id, number, title, int(required), pos))
+            existing.add(number)
+            pos += 1
+            added += 1
+        return added
+
+    def add_chapter(self, source_id: int, number: str, title: str = "", section_numbers: list[str] | None = None,
+                    topic_id: int | None = None, required: bool = True) -> tuple[Chapter, int]:
+        """Add (or extend) a chapter with sections by number. Returns the chapter and how many sections were new."""
+        number = number.strip().rstrip(".")
+        if not number:
+            raise StorageError("A chapter needs a number, like 6.")
+        with self._tx() as c:
+            chapter_id = self._chapter_for(c, source_id, number, title.strip(), topic_id)
+            added = self._add_sections(c, chapter_id, [(n, "") for n in section_numbers or []], required)
+        return self.get_chapter(chapter_id), added  # type: ignore[return-value]
+
+    def import_toc(self, source_id: int, chapters: list[TocChapter], required: bool = True,
+                   topic_id: int | None = None) -> tuple[int, int]:
+        """Add a pasted table of contents. Existing chapters and sections are kept; returns (new chapters, new sections)."""
+        with self._tx() as c:
+            before = c.execute("select count(*) from chapter where source_id = ?", (source_id,)).fetchone()[0]
+            new_sections = 0
+            for ch in chapters:
+                chapter_id = self._chapter_for(c, source_id, ch.number, ch.title, topic_id)
+                new_sections += self._add_sections(c, chapter_id, ch.sections, required)
+            after = c.execute("select count(*) from chapter where source_id = ?", (source_id,)).fetchone()[0]
+        return after - before, new_sections
+
+    def update_chapter(self, chapter: Chapter) -> Chapter:
+        if not chapter.number.strip():
+            raise StorageError("A chapter needs a number, like 6.")
+        try:
+            with self._tx() as c:
+                c.execute("update chapter set number = ?, title = ?, topic_id = ? where id = ?",
+                          (chapter.number.strip(), chapter.title.strip(), chapter.topic_id, chapter.id))
+        except sqlite3.IntegrityError:
+            raise StorageError(f"That source already has a chapter {chapter.number}.") from None
+        return chapter
+
+    def delete_chapter(self, chapter_id: int) -> None:
+        with self._tx() as c:
+            c.execute("delete from chapter where id = ?", (chapter_id,))
+
+    def get_chapter(self, chapter_id: int) -> Chapter | None:
+        r = self.conn.execute("select * from chapter where id = ?", (chapter_id,)).fetchone()
+        return self._chapter(r) if r else None
+
+    def update_section(self, section: Section) -> Section:
+        if not section.number.strip():
+            raise StorageError("A section needs a number, like 6.1.")
+        try:
+            with self._tx() as c:
+                c.execute("update section set number = ?, title = ?, required = ?, topic_id = ? where id = ?",
+                          (section.number.strip(), section.title.strip(), int(section.required), section.topic_id,
+                           section.id))
+        except sqlite3.IntegrityError:
+            raise StorageError(f"That chapter already has a section {section.number}.") from None
+        return section
+
+    def delete_section(self, section_id: int) -> None:
+        with self._tx() as c:
+            c.execute("delete from section where id = ?", (section_id,))
+
+    def get_section(self, section_id: int) -> Section | None:
+        r = self.conn.execute("select * from section where id = ?", (section_id,)).fetchone()
+        return self._section(r) if r else None
+
+    def reading_list(self, course_id: int) -> list[tuple[Source, list[tuple[Chapter, list[Section]]]]]:
+        """The course's sources with their chapters and sections, in reading order."""
+        out = []
+        for source in self.list_sources(course_id):
+            chapters = [self._chapter(r) for r in self.conn.execute(
+                "select * from chapter where source_id = ? order by position, id", (source.id,))]
+            chapters.sort(key=lambda ch: number_key(ch.number))
+            entries = []
+            for ch in chapters:
+                sections = [self._section(r) for r in self.conn.execute(
+                    "select * from section where chapter_id = ?", (ch.id,))]
+                sections.sort(key=lambda s: number_key(s.number))
+                entries.append((ch, sections))
+            out.append((source, entries))
+        return out
+
+    def _set_read(self, section_ids: list[int], read: bool, now: datetime) -> None:
+        """Mark sections read or unread. Reading counts as studying the topic that day, and when a not-started
+        topic's required reading is all done, the topic moves to in progress."""
+        if not section_ids:
+            return
+        marks = ",".join("?" * len(section_ids))
+        with self._tx() as c:
+            c.execute(f"update section set read = ?, read_at = ? where id in ({marks})",
+                      (int(read), _iso(now) if read else None, *section_ids))
+            if not read:
+                return
+            topics = {r[0] for r in c.execute(
+                f"select coalesce(s.topic_id, ch.topic_id) from section s join chapter ch on ch.id = s.chapter_id"
+                f" where s.id in ({marks})", section_ids) if r[0] is not None}
+            for topic_id in topics:
+                c.execute("update topic set last_studied = max(coalesce(last_studied, ''), ?) where id = ?",
+                          (_iso(now.date()), topic_id))
+                left = c.execute(
+                    "select count(*) from section s join chapter ch on ch.id = s.chapter_id"
+                    " where coalesce(s.topic_id, ch.topic_id) = ? and s.required = 1 and s.read = 0", (topic_id,)
+                ).fetchone()[0]
+                if left == 0:
+                    c.execute("update topic set status = 'in_progress' where id = ? and status = 'not_started'", (topic_id,))
+
+    def toggle_section_read(self, section_id: int, now: datetime | None = None) -> Section:
+        section = self.get_section(section_id)
+        if section is None:
+            raise StorageError("That section no longer exists.")
+        self._set_read([section_id], not section.read, now or datetime.now())
+        return self.get_section(section_id)  # type: ignore[return-value]
+
+    def set_chapter_read(self, chapter_id: int, read: bool, now: datetime | None = None) -> None:
+        """Mark every required section of a chapter read (or unread)."""
+        ids = [r[0] for r in self.conn.execute(
+            "select id from section where chapter_id = ? and required = 1", (chapter_id,))]
+        self._set_read(ids, read, now or datetime.now())
+
+    def mark_read(self, course_id: int, numbers: list[str], source_id: int | None = None,
+                  now: datetime | None = None) -> list[Section]:
+        """Mark sections read by number ('6.1'); used by the CLI. Unknown numbers raise an error naming them."""
+        found: dict[str, Section] = {}
+        for source, chapters in self.reading_list(course_id):
+            if source_id is not None and source.id != source_id:
+                continue
+            for _, sections in chapters:
+                for s in sections:
+                    if s.number in numbers:
+                        if s.number in found:
+                            raise StorageError(f"Section {s.number} is in more than one source; use --source.")
+                        found[s.number] = s
+        missing = [n for n in numbers if n not in found]
+        if missing:
+            raise StorageError(f"No section {', '.join(missing)} in that reading list.")
+        self._set_read([s.id for s in found.values()], True, now or datetime.now())
+        return [self.get_section(s.id) for s in found.values()]  # type: ignore[misc]
+
+    def set_required(self, section_ids: list[int], required: bool) -> None:
+        if not section_ids:
+            return
+        with self._tx() as c:
+            c.execute(f"update section set required = ? where id in ({','.join('?' * len(section_ids))})",
+                      (int(required), *section_ids))
+
+    def reading_progress(self, course_id: int) -> ReadingProgress:
+        return progress(s for _, chapters in self.reading_list(course_id) for _, sections in chapters for s in sections)
+
+    def reading_by_topic(self, course_id: int) -> dict[int, ReadingProgress]:
+        """Required-reading progress for each topic that has reading linked to it."""
+        by_topic: dict[int, list[Section]] = {}
+        for _, chapters in self.reading_list(course_id):
+            for chapter, sections in chapters:
+                for s in sections:
+                    topic = s.topic_id if s.topic_id is not None else chapter.topic_id
+                    if topic is not None:
+                        by_topic.setdefault(topic, []).append(s)
+        return {t: progress(ss) for t, ss in by_topic.items()}
 
     # ---------- settings ----------
 

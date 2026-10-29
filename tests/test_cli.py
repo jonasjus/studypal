@@ -93,7 +93,7 @@ def test_export_markdown_and_csv(tmp_path: Path, course: None) -> None:
     out_dir = tmp_path / "csv"
     study("export", "--format", "csv", "--output", str(out_dir))
     assert sorted(p.name for p in out_dir.iterdir()) == [
-        "courses.csv", "deadlines.csv", "sessions.csv", "topics.csv", "weak_spots.csv"]
+        "courses.csv", "deadlines.csv", "reading.csv", "sessions.csv", "topics.csv", "weak_spots.csv"]
     rows = list(csv.DictReader((out_dir / "sessions.csv").open()))
     assert rows[0]["minutes"] == "45"
     assert "isn't a format" in study("export", "-f", "pdf", ok=False)
@@ -114,3 +114,16 @@ def test_demo_uses_a_throwaway_database(isolated: Path) -> None:
     out = study("--demo", "status")
     assert "Demo mode" in out and "Machine Learning" in out
     assert not isolated.exists()  # the real database was never touched
+
+
+def test_reading_commands(tmp_path: Path, course: None) -> None:
+    toc = tmp_path / "toc.txt"
+    toc.write_text("6 Kernel Methods\n6.1 Dual Representations ..... 293\n6.2 Constructing Kernels\n")
+    assert "2 sections" in study("add", "source", "inf", "Bishop PRML", "--author", "Bishop", "--toc", str(toc))
+    assert "3 new sections" in study("add", "chapter", "inf", "7", "Sparse Kernel Machines", "-s", "1-3", "--topic", "kernels")
+    assert "2/5 needed sections read" in study("read", "inf", "6.1", "7.1")
+    assert "No section 9.9" in study("read", "inf", "9.9", ok=False)
+    out = study("reading", "inf")
+    assert "[x] 6.1  Dual Representations" in out and "→ Kernels and SVMs" in out
+    md = study("export")
+    assert "### Reading" in md and "- [x] 6.1 Dual Representations" in md

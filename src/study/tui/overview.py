@@ -37,6 +37,7 @@ class OverviewScreen(CourseActions, Screen):
         Binding("e", "edit", "Edit"),
         Binding("d", "delete", "Delete"),
         Binding("slash", "filter", "Filter", key_display="/"),
+        Binding("r", "reading", "Reading", show=False),
         Binding("escape", "clear_filter", "Clear filter", show=False),
     ]
 
@@ -144,6 +145,13 @@ class OverviewScreen(CourseActions, Screen):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         event.stop()
         self.action_open_current()
+
+    def action_reading(self) -> None:
+        cid = self.current_course_id()
+        if cid is not None:
+            from .reading import ReadingScreen
+
+            self.app.push_screen(ReadingScreen(cid))
 
     def action_open_number(self, n: int) -> None:
         if self.dash and 1 <= n <= len(self.dash.courses):

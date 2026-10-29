@@ -46,7 +46,15 @@ HELP = """\
   e / d        edit / delete what's highlighted (E on a subject edits the course)
   + / -        change a topic's confidence   space on a topic   next status
   /            filter the lists (esc clears) T   pick a colour theme
+  r            reading list for the current course (from a topic: jumps to its chapter)
   ?            this help                     q   quit
+
+[b]Reading list[/b]
+  space        tick a section read · on a chapter: all its needed sections
+  o            needed ⇄ optional (section, or a whole chapter)     enter   fold a chapter or book
+  a            add sections by range: chapter 6, sections 6.1-6.5, 6.7 (or 1-5)
+  i            paste a table of contents      b   add a book or notes
+  t            link a chapter (or one section) to a topic; the topic shows "read 3/5"
 
 Every change is saved immediately. A running timer or Pomodoro keeps going if you quit.
 """

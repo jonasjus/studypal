@@ -218,7 +218,7 @@ Footer {
     color: $foreground-muted;
 }
 
-ConfirmModal, ThemePicker {
+ConfirmModal, ThemePicker, TocModal {
     align: center middle;
     background: $background 60%;
 }
@@ -242,4 +242,32 @@ ConfirmModal, ThemePicker {
 #sessions Static {
     text-wrap: nowrap;
     text-overflow: ellipsis;
+}
+
+/* ----- reading list ----- */
+
+#reading-head {
+    height: auto;
+    padding: 0 2;
+    margin-bottom: 1;
+}
+
+#reading {
+    height: 1fr;
+    margin: 0 1;
+}
+
+#form.wide {
+    width: 100;
+}
+
+#toc-text {
+    height: 16;
+    margin-top: 1;
+    border: tall $border-blurred;
+    background: transparent;
+}
+
+#toc-text:focus {
+    border: tall $border;
 }

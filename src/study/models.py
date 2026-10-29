@@ -123,3 +123,34 @@ class ActiveTimer:
     course_id: int
     started_at: datetime
     topic_id: int | None = None
+
+
+@dataclass
+class Source:
+    """Something to read for a course: a textbook, lecture notes, a paper."""
+
+    course_id: int
+    title: str
+    author: str = ""
+    id: int | None = None
+
+
+@dataclass
+class Chapter:
+    source_id: int
+    number: str  # "6", "A"
+    title: str = ""
+    topic_id: int | None = None  # the topic this chapter's sections count toward
+    id: int | None = None
+
+
+@dataclass
+class Section:
+    chapter_id: int
+    number: str  # "6.1"
+    title: str = ""
+    required: bool = True  # part of what you need to read; optional sections don't count toward progress
+    read: bool = False
+    read_at: datetime | None = None
+    topic_id: int | None = None  # set to link just this section to a different topic than its chapter
+    id: int | None = None

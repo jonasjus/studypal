@@ -9,7 +9,7 @@ import tempfile
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
-from .models import Course, Deadline, DeadlineKind, Priority, Session, Topic, TopicStatus, WeakSpot
+from .models import Course, Deadline, DeadlineKind, Priority, Session, Source, Topic, TopicStatus, WeakSpot
 from .storage import Store
 
 NS, IP, RV, CF = TopicStatus.NOT_STARTED, TopicStatus.IN_PROGRESS, TopicStatus.REVIEWED, TopicStatus.CONFIDENT
@@ -40,6 +40,24 @@ WEAK = [
     ("STK310", "Sufficiency", "Factorisation theorem proofs", Priority.HIGH, 2),
     ("DAT255", "Kafka", "Exactly-once semantics", Priority.MED, 8),
     ("STK310", "Bayesian inference", "Conjugate priors beyond beta-binomial", Priority.LOW, 1),
+]
+
+# (course code, source title, author, [(chapter, title, topic, sections, read up to, optional sections)])
+READING = [
+    ("INF301", "Pattern Recognition and Machine Learning", "Bishop", [
+        ("3", "Linear Models for Regression", "Linear models", "3.1-3.5", 5, ["3.4"]),
+        ("6", "Kernel Methods", "Kernels and SVMs", "6.1-6.4", 2, ["6.4"]),
+        ("7", "Sparse Kernel Machines", "Kernels and SVMs", "7.1-7.2", 0, ["7.2"]),
+        ("14", "Combining Models", "Trees and boosting", "14.1-14.5", 3, []),
+    ]),
+    ("INF301", "Lecture notes", "", [
+        ("5", "Model selection", "Model selection", "5.1-5.3", 3, []),
+    ]),
+    ("STK310", "Statistical Inference", "Casella & Berger", [
+        ("6", "Principles of Data Reduction", "Sufficiency", "6.1-6.4", 2, ["6.4"]),
+        ("7", "Point Estimation", "Likelihood", "7.1-7.3", 3, []),
+        ("8", "Hypothesis Testing", "Hypothesis testing", "8.1-8.3", 1, []),
+    ]),
 ]
 
 # (course code or None, title, kind, due offset in hours, done)
@@ -73,6 +91,23 @@ def seed(store: Store, now: datetime | None = None) -> None:
     for code, topic, text, priority, ago in WEAK:
         store.add_weak_spot(WeakSpot(courses[code].id, text, priority, topic_ids[(code, topic)],
                                      created_at=now - timedelta(days=ago)))
+
+    from .logic.reading import parse_section_ranges
+
+    for code, title, author, chapters in READING:
+        source = store.add_source(Source(courses[code].id, title, author))
+        for number, chapter_title, topic, ranges, read_up_to, optional in chapters:
+            numbers = parse_section_ranges(ranges, number)
+            store.add_chapter(source.id, number, chapter_title, numbers, topic_ids[(code, topic)])
+            listed = {sec.number: sec for _, chs in store.reading_list(courses[code].id) for _, ss in chs for sec in ss
+                      if sec.number in numbers}
+            store.set_required([listed[n].id for n in optional], False)
+            read = [listed[n].id for n in numbers[:read_up_to] if n not in optional]
+            # Ticked directly so the demo topics keep the statuses and study dates chosen above
+            # (ticking through the store would count the reading as studying them today).
+            for section_id in read:
+                store.conn.execute("update section set read = 1, read_at = ? where id = ?",
+                                   ((now - timedelta(days=2)).isoformat(timespec="minutes"), section_id))
 
     for code, title, kind, hours, done in DEADLINES:
         due = (now + timedelta(hours=hours)).replace(minute=0)

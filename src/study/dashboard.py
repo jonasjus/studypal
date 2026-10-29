@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 
 from .config import Config
 from .logic.pomodoro import PomodoroRun
+from .logic.reading import ReadingProgress
 from .logic.stats import is_stale, minutes_between, minutes_per_day, week_range
 from .logic.timeline import CramProgress, cram_progress
 from .models import ActiveTimer, Course, Deadline, Topic, WeakSpot
@@ -23,6 +24,7 @@ class CourseSummary:
     open_weak: int
     stale_topics: int
     next_deadline: Deadline | None
+    reading: ReadingProgress = ReadingProgress()
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,7 @@ def build(store: Store, cfg: Config, now: datetime | None = None) -> Dashboard:
             open_weak=sum(1 for w in weak if w.course_id == course.id),
             stale_topics=sum(1 for t in topics if is_stale(t, today, cfg.stale_after_days)),
             next_deadline=upcoming[0] if upcoming else None,
+            reading=store.reading_progress(course.id),
         ))
 
     first_day = week_start.date()

@@ -421,3 +421,115 @@ def test_toasts_on_launch_then_only_for_new_deadlines(store: Store) -> None:
         assert "Problem set" not in latest.message and latest.severity == "error"
 
     run(store, script)
+
+
+# ---------- reading list ----------
+
+def _reading_store(store: Store):
+    from study.models import Source
+
+    course = store.add_course(Course("Machine Learning", "INF301", date.today() - timedelta(days=5),
+                                     date.today() + timedelta(days=20)))
+    kernels = store.add_topic(Topic(course.id, "Kernels"))
+    store.add_topic(Topic(course.id, "Trees"))
+    source = store.add_source(Source(course.id, "Bishop"))
+    store.add_chapter(source.id, "6", "Kernel methods", ["6.1", "6.2", "6.3"], topic_id=kernels.id)
+    return course, kernels, source
+
+
+def test_r_on_a_topic_opens_the_reading_list_at_its_chapter(store: Store) -> None:
+    from study.models import Chapter
+    from study.tui.reading import ReadingScreen
+
+    course, kernels, _ = _reading_store(store)
+
+    async def script(app, pilot):
+        await pilot.press("enter")  # the course
+        await pilot.pause()
+        await pilot.press("r")  # Kernels is highlighted
+        await pilot.pause()
+        assert isinstance(app.screen, ReadingScreen)
+        current = app.screen.query_one("#reading").current
+        assert isinstance(current, Chapter) and current.topic_id == kernels.id
+
+    run(store, script)
+
+
+def test_ticking_sections_and_whole_chapters(store: Store) -> None:
+    from study.tui.reading import ReadingScreen
+
+    course, kernels, _ = _reading_store(store)
+
+    async def script(app, pilot):
+        app.push_screen(ReadingScreen(course.id))
+        await pilot.pause()
+        lv = app.screen.query_one("#reading")
+        lv.index = 2  # source, chapter 6, then 6.1
+        await pilot.press("space")
+        await pilot.pause()
+        assert store.reading_progress(course.id).read == 1
+        await pilot.press("j", "o")  # 6.2 becomes optional
+        await pilot.pause()
+        lv.index = 1  # chapter row
+        await pilot.press("space")  # every needed section
+        await pilot.pause()
+        p = store.reading_progress(course.id)
+        assert (p.read, p.required, p.optional) == (2, 2, 1)
+        assert store.get_topic(kernels.id).status.value == "in_progress"  # all its needed reading done
+
+    run(store, script)
+
+
+def test_add_sections_by_range_and_paste_contents(store: Store) -> None:
+    from study.tui.reading import ReadingScreen, TocModal
+
+    course, _, _ = _reading_store(store)
+
+    async def script(app, pilot):
+        app.push_screen(ReadingScreen(course.id))
+        await pilot.pause()
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#f-number").value = "7"
+        app.screen.query_one("#f-sections").value = "1-3"
+        app.screen.query_one("#f-sections").focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("i")
+        await pilot.pause()
+        assert isinstance(app.screen, TocModal)
+        app.screen.query_one("#toc-text").text = "14 Combining Models\n14.1 Bayesian model averaging ...... 654\n14.2 Committees  655\n"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+    run(store, script)
+    numbers = [s.number for _, chs in store.reading_list(course.id) for _, ss in chs for s in ss]
+    assert numbers == ["6.1", "6.2", "6.3", "7.1", "7.2", "7.3", "14.1", "14.2"]
+    chapter14 = store.reading_list(course.id)[0][1][2][0]
+    assert chapter14.title == "Combining Models"
+
+
+def test_link_a_chapter_to_a_topic_and_fold_it(store: Store) -> None:
+    from study.tui.reading import ReadingScreen
+
+    course, kernels, _ = _reading_store(store)
+    trees = store.find_topic(course.id, "Trees")
+
+    async def script(app, pilot):
+        app.push_screen(ReadingScreen(course.id))
+        await pilot.pause()
+        lv = app.screen.query_one("#reading")
+        lv.index = 1
+        await pilot.press("t")
+        await pilot.pause()
+        app.screen.query_one("#f-topic").value = trees.id
+        app.screen.submit()
+        await pilot.pause()
+        assert len(app.screen.query_one("#reading").children) == 5  # source, chapter, 3 sections
+        app.screen.query_one("#reading").index = 1
+        await pilot.press("enter")  # fold the chapter
+        await pilot.pause()
+        assert len(app.screen.query_one("#reading").children) == 2
+
+    run(store, script)
+    assert store.reading_by_topic(course.id).keys() == {trees.id}
