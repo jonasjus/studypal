@@ -7,6 +7,12 @@ Example ~/.config/study/config.toml:
     morning_time = "08:00"
     toast_window = "2d"                           # in-app toasts for deadlines this close
 
+    [pomodoro]
+    focus = "25m"
+    short_break = "5m"
+    long_break = "15m"
+    long_break_every = 4                          # long break after every 4th focus block
+
     [study]
     week_start = "monday"
     stale_after_days = 7                          # highlight topics not studied for this long
@@ -17,11 +23,12 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import time, timedelta
 from pathlib import Path
 
 from . import paths
+from .logic.pomodoro import PomodoroSettings
 
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 MORNING = "morning"
@@ -52,6 +59,7 @@ class Config:
     week_start: int = 0  # 0 = Monday
     stale_after_days: int = 7
     default_exam_time: time = time(9, 0)
+    pomodoro: PomodoroSettings = field(default_factory=PomodoroSettings)
 
 
 def parse_duration(text: str) -> timedelta:
@@ -84,6 +92,26 @@ def default_config() -> Config:
     return Config(thresholds=DEFAULT_THRESHOLDS)
 
 
+def _pomodoro(section: dict, default: PomodoroSettings) -> PomodoroSettings:
+    def length(key: str, fallback: timedelta) -> timedelta:
+        if key not in section:
+            return fallback
+        value = parse_duration(str(section[key]))
+        if value < timedelta(minutes=1):
+            raise ConfigError(f"pomodoro.{key} must be at least a minute.")
+        return value
+
+    every = section.get("long_break_every", default.long_break_every)
+    if not isinstance(every, int) or every < 1:
+        raise ConfigError("pomodoro.long_break_every must be a whole number, 1 or more.")
+    return PomodoroSettings(
+        focus=length("focus", default.focus),
+        short_break=length("short_break", default.short_break),
+        long_break=length("long_break", default.long_break),
+        long_break_every=every,
+    )
+
+
 def from_dict(data: dict) -> Config:
     notif = data.get("notifications", {}) or {}
     study = data.get("study", {}) or {}
@@ -114,6 +142,7 @@ def from_dict(data: dict) -> Config:
         week_start=week_start,
         stale_after_days=stale,
         default_exam_time=parse_time(study["default_exam_time"], "study.default_exam_time") if "default_exam_time" in study else cfg.default_exam_time,
+        pomodoro=_pomodoro(data.get("pomodoro", {}) or {}, cfg.pomodoro),
     )
 
 

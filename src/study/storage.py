@@ -12,6 +12,8 @@ from contextlib import contextmanager
 from datetime import date, datetime, time
 from pathlib import Path
 
+from .logic import pomodoro as pomo
+from .logic.pomodoro import PomodoroRun, PomodoroSettings, PomoPhase
 from .models import (
     COURSE_COLORS,
     ActiveTimer,
@@ -104,6 +106,20 @@ MIGRATIONS: list[str] = [
         course_id   integer not null references course(id) on delete cascade,
         topic_id    integer references topic(id) on delete set null,
         started_at  text not null
+    );
+    """,
+    """
+    -- At most one Pomodoro run. Times keep seconds so countdowns stay exact.
+    create table pomodoro_run (
+        id                integer primary key check (id = 1),
+        course_id         integer not null references course(id) on delete cascade,
+        topic_id          integer references topic(id) on delete set null,
+        phase             text not null check (phase in ('focus', 'short_break', 'long_break', 'ready')),
+        phase_started_at  text not null,
+        block_started_at  text not null,
+        completed         integer not null default 0,
+        paused_at         text,
+        note              text not null default ''
     );
     """,
 ]
@@ -549,6 +565,8 @@ class Store:
     def start_timer(self, course_id: int, topic_id: int | None = None, now: datetime | None = None) -> ActiveTimer:
         if self.get_timer() is not None:
             raise StorageError("A study timer is already running. Stop it first.")
+        if self.get_pomodoro() is not None:
+            raise StorageError("A Pomodoro is running. Stop it before starting a plain timer.")
         timer = ActiveTimer(course_id=course_id, topic_id=topic_id, started_at=(now or datetime.now()).replace(microsecond=0))
         with self._tx() as c:
             c.execute(
@@ -583,6 +601,114 @@ class Store:
     def cancel_timer(self) -> None:
         with self._tx() as c:
             c.execute("delete from active_timer where id = 1")
+
+    # ---------- Pomodoro ----------
+    # Every method settles the run first: focus blocks that have finished since the last look are
+    # logged as sessions in the same transaction that saves the run, so a block is logged exactly once.
+
+    def get_pomodoro(self) -> PomodoroRun | None:
+        r = self.conn.execute("select * from pomodoro_run where id = 1").fetchone()
+        if not r:
+            return None
+        return PomodoroRun(
+            course_id=r["course_id"], topic_id=r["topic_id"], phase=PomoPhase(r["phase"]),
+            phase_started_at=_dt(r["phase_started_at"]), block_started_at=_dt(r["block_started_at"]),
+            completed=r["completed"], paused_at=_dt(r["paused_at"]), note=r["note"],
+        )
+
+    @staticmethod
+    def _write_pomodoro(c: sqlite3.Connection, run: PomodoroRun) -> None:
+        def ts(value: datetime | None) -> str | None:
+            return value.isoformat(timespec="seconds") if value else None
+
+        c.execute(
+            "insert or replace into pomodoro_run"
+            " (id, course_id, topic_id, phase, phase_started_at, block_started_at, completed, paused_at, note)"
+            " values (1, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (run.course_id, run.topic_id, run.phase.value, ts(run.phase_started_at), ts(run.block_started_at),
+             run.completed, ts(run.paused_at), run.note),
+        )
+
+    def _log_blocks(self, c: sqlite3.Connection, run: PomodoroRun, blocks: list[pomo.FinishedBlock]) -> list[Session]:
+        sessions = []
+        for b in blocks:
+            note = f"Pomodoro {b.number}" + (" (stopped early)" if b.partial else "") + (f" · {run.note}" if run.note else "")
+            session = Session(course_id=run.course_id, topic_id=run.topic_id, started_at=b.started_at,
+                              minutes=b.minutes, note=note)
+            self._insert_session(c, session)
+            sessions.append(session)
+        return sessions
+
+    def start_pomodoro(self, course_id: int, topic_id: int | None = None, now: datetime | None = None,
+                       note: str = "") -> PomodoroRun:
+        if self.get_pomodoro() is not None:
+            raise StorageError("A Pomodoro is already running. Stop it first.")
+        if self.get_timer() is not None:
+            raise StorageError("A study timer is running. Stop it before starting a Pomodoro.")
+        run = pomo.start(course_id, now or datetime.now(), topic_id, note.strip())
+        with self._tx() as c:
+            self._write_pomodoro(c, run)
+        return run
+
+    def _change_pomodoro(self, now: datetime, settings: PomodoroSettings, change=None) -> tuple[PomodoroRun | None, list[Session]]:
+        run = self.get_pomodoro()
+        if run is None:
+            return None, []
+        settled, blocks = pomo.advance(run, now, settings)
+        if change is not None:
+            settled = change(settled)
+        if settled == run and not blocks:
+            return run, []
+        with self._tx() as c:
+            # Re-read inside the transaction: another process may have settled this run a moment ago.
+            current = self.get_pomodoro()
+            if current != run:
+                return current, []
+            self._write_pomodoro(c, settled)
+            sessions = self._log_blocks(c, settled, blocks)
+        return settled, sessions
+
+    def settle_pomodoro(self, now: datetime | None = None,
+                        settings: PomodoroSettings = PomodoroSettings()) -> tuple[PomodoroRun | None, list[Session]]:
+        """Log any focus blocks that have finished. Returns the current run and the sessions just logged."""
+        return self._change_pomodoro(now or datetime.now(), settings)
+
+    def pomodoro_next(self, now: datetime | None = None,
+                      settings: PomodoroSettings = PomodoroSettings()) -> tuple[PomodoroRun, list[Session]]:
+        """Start the next focus block (also skips the rest of a break)."""
+        now = now or datetime.now()
+        run, sessions = self._change_pomodoro(now, settings, lambda r: pomo.next_focus(r, now))
+        if run is None:
+            raise StorageError("No Pomodoro is running.")
+        return run, sessions
+
+    def pause_pomodoro(self, now: datetime | None = None,
+                       settings: PomodoroSettings = PomodoroSettings()) -> tuple[PomodoroRun, list[Session]]:
+        now = now or datetime.now()
+        run, sessions = self._change_pomodoro(now, settings, lambda r: pomo.pause(r, now))
+        if run is None:
+            raise StorageError("No Pomodoro is running.")
+        return run, sessions
+
+    def resume_pomodoro(self, now: datetime | None = None,
+                        settings: PomodoroSettings = PomodoroSettings()) -> tuple[PomodoroRun, list[Session]]:
+        now = now or datetime.now()
+        run, sessions = self._change_pomodoro(now, settings, lambda r: pomo.resume(r, now))
+        if run is None:
+            raise StorageError("No Pomodoro is running.")
+        return run, sessions
+
+    def stop_pomodoro(self, now: datetime | None = None,
+                      settings: PomodoroSettings = PomodoroSettings()) -> list[Session]:
+        """End the run, logging finished blocks and the part of a block in progress (a minute or more)."""
+        with self._tx() as c:
+            # Read inside the transaction so a concurrent settle can't make us log a block twice.
+            run = self.get_pomodoro()
+            if run is None:
+                raise StorageError("No Pomodoro is running.")
+            blocks = pomo.stop(run, now or datetime.now(), settings)
+            c.execute("delete from pomodoro_run where id = 1")
+            return self._log_blocks(c, run, blocks)
 
     # ---------- notifications already sent ----------
 
