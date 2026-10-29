@@ -1,0 +1,95 @@
+"""Export everything as Markdown (one readable document) or CSV (one file per table)."""
+
+from __future__ import annotations
+
+import csv
+from datetime import datetime
+from pathlib import Path
+
+from .logic.stats import format_minutes
+from .logic.timeline import cram_progress
+from .storage import Store
+
+
+def _cell(value: object) -> str:
+    return str(value if value is not None else "").replace("|", "\\|").replace("\n", " ")
+
+
+def _table(headers: list[str], rows: list[list[object]]) -> list[str]:
+    if not rows:
+        return ["_None._", ""]
+    lines = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
+    lines += ["| " + " | ".join(_cell(v) for v in row) + " |" for row in rows]
+    return lines + [""]
+
+
+def to_markdown(store: Store, now: datetime | None = None) -> str:
+    now = now or datetime.now()
+    topics_by_id = {t.id: t for t in store.list_topics()}
+    out = [f"# Study export, {now:%Y-%m-%d %H:%M}", ""]
+    for course in store.list_courses():
+        topics = store.list_topics(course.id)
+        p = cram_progress(course, topics, now.date())
+        out += [
+            f"## {course.code} · {course.name}", "",
+            f"Cram {course.cram_start} → exam {course.exam_date} · {round(p.done * 100)}% done · "
+            f"{format_minutes(store.total_minutes(course.id))} studied",
+            "",
+        ]
+        if course.notes:
+            out += [course.notes, ""]
+        out += ["### Topics", ""]
+        out += _table(["Topic", "Status", "Confidence", "Last studied"],
+                      [[t.title, t.status.label, f"{t.confidence}/5", t.last_studied or "never"] for t in topics])
+        out += ["### Weak spots", ""]
+        out += _table(["Priority", "Weak spot", "Topic", "Added", "Resolved"],
+                      [[w.priority.value, w.description, topics_by_id[w.topic_id].title if w.topic_id in topics_by_id else "",
+                        f"{w.created_at:%Y-%m-%d}", f"{w.resolved_at:%Y-%m-%d}" if w.resolved_at else ""]
+                       for w in store.list_weak_spots(course.id, include_resolved=True)])
+        out += ["### Deadlines", ""]
+        out += _table(["Due", "Deadline", "Type", "Done"],
+                      [[f"{d.due_at:%Y-%m-%d %H:%M}", d.title, d.kind.value, "yes" if d.done else ""]
+                       for d in store.list_deadlines(course.id, include_done=True)])
+        out += ["### Sessions", ""]
+        out += _table(["Started", "Minutes", "Topic", "Note"],
+                      [[f"{s.started_at:%Y-%m-%d %H:%M}", s.minutes,
+                        topics_by_id[s.topic_id].title if s.topic_id in topics_by_id else "", s.note]
+                       for s in store.list_sessions(course.id)])
+    standalone = [d for d in store.list_deadlines(include_done=True) if d.course_id is None]
+    if standalone:
+        out += ["## Other deadlines", ""]
+        out += _table(["Due", "Deadline", "Type", "Done"],
+                      [[f"{d.due_at:%Y-%m-%d %H:%M}", d.title, d.kind.value, "yes" if d.done else ""] for d in standalone])
+    return "\n".join(out).rstrip() + "\n"
+
+
+def to_csv(store: Store, folder: Path) -> list[Path]:
+    """Write courses.csv, topics.csv, weak_spots.csv, deadlines.csv and sessions.csv into `folder`."""
+    folder.mkdir(parents=True, exist_ok=True)
+    tables: dict[str, tuple[list[str], list[list[object]]]] = {
+        "courses": (["id", "code", "name", "cram_start", "exam_date", "color", "notes"],
+                    [[c.id, c.code, c.name, c.cram_start, c.exam_date, c.color, c.notes] for c in store.list_courses()]),
+        "topics": (["id", "course_id", "title", "status", "confidence", "last_studied"],
+                   [[t.id, t.course_id, t.title, t.status.value, t.confidence, t.last_studied or ""]
+                    for t in store.list_topics()]),
+        "weak_spots": (["id", "course_id", "topic_id", "description", "priority", "created_at", "resolved", "resolved_at"],
+                       [[w.id, w.course_id, w.topic_id or "", w.description, w.priority.value,
+                         w.created_at.isoformat(timespec="minutes"), int(w.resolved),
+                         w.resolved_at.isoformat(timespec="minutes") if w.resolved_at else ""]
+                        for w in store.list_weak_spots(include_resolved=True)]),
+        "deadlines": (["id", "course_id", "title", "due_at", "type", "done"],
+                      [[d.id, d.course_id or "", d.title, d.due_at.isoformat(timespec="minutes"), d.kind.value, int(d.done)]
+                       for d in store.list_deadlines(include_done=True)]),
+        "sessions": (["id", "course_id", "topic_id", "started_at", "minutes", "note"],
+                     [[s.id, s.course_id, s.topic_id or "", s.started_at.isoformat(timespec="minutes"), s.minutes, s.note]
+                      for s in store.list_sessions()]),
+    }
+    written = []
+    for name, (headers, rows) in tables.items():
+        path = folder / f"{name}.csv"
+        with path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+            writer.writerows(rows)
+        written.append(path)
+    return written
