@@ -128,7 +128,45 @@ logging time or starting a Pomodoro on that course.
 | `/` | filter every pane by text (`esc` clears) | same |
 | `T` | pick a colour theme | same |
 | `esc`, `[` / `]` | clear the filter | back (or clear the filter) · previous / next subject |
+| `r` | reading list of the current course | same; from a topic, at its chapter |
 | `?` / `q` | help / quit | same |
+
+## Reading list
+
+Each course can have a reading list: books or notes, with chapters and sections to tick off.
+Press `r` in the dashboard (on a subject's topic it opens at that topic's chapter), or use the CLI.
+
+```
+▾ Pattern Recognition and Machine Learning · Bishop                 8/13 +0/3 optional  ━━━━━━──
+  ▾ 6  Kernel Methods  → Kernels and SVMs                                   1/3 +0/1 optional  ━━───
+      [ ] 6.1
+      [x] 6.2
+      ( ) 6.4  optional
+```
+
+- **Needed or optional.** Sections are needed by default; `o` makes a section (or a whole chapter)
+  optional. Progress only counts needed sections, so optional reading never makes you look behind.
+- **Adding sections.** `a` adds a chapter with sections by range: `6.1-6.5, 6.7`, or `1-5` inside
+  chapter 6. `i` pastes a table of contents: lines like `6.1 Dual representations ..... 293` become
+  sections (page numbers and dot leaders are dropped). Sections already on the list are kept.
+- **Linked to topics.** `t` links a chapter, or a single section, to a topic. The topic then shows
+  `read 3/5` on the subject page. Reading a section counts as studying its topic that day, and when
+  all of a not-started topic's needed reading is read, the topic moves to *in progress*.
+
+| Key | Reading list |
+|---|---|
+| `space` | tick a section read; on a chapter, all its needed sections |
+| `o` | needed ⇄ optional |
+| `enter` | fold a chapter or book |
+| `a` / `i` / `b` | add sections by range · paste contents · add a book or notes |
+| `t` / `e` / `d` | link to a topic · edit · delete |
+
+```sh
+study add source INF301 "Pattern Recognition and ML" --author Bishop --toc contents.txt
+study add chapter INF301 6 "Kernel methods" --sections 1-5 --topic kernels
+study read INF301 6.1 6.3-6.5
+study reading INF301
+```
 
 ## Themes
 
