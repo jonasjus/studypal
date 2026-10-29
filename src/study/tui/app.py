@@ -32,7 +32,8 @@ HELP = """\
   tab          next pane          j / k, ↑ / ↓   move
   a            add: a course (Subjects), a deadline (Deadlines), a weak spot (Weak spots)
   t            add a topic to the current course
-  space        mark a deadline done / a weak spot resolved
+  space        mark a subject, deadline or weak spot done (a done subject moves to the Done pane)
+  h            show / hide the Done pane
 
 [b]Subject[/b]
   esc          back to the overview          [ / ]   previous / next subject
@@ -180,7 +181,8 @@ class StudyApp(App):
         grid = Table.grid(expand=True)
         grid.add_column()
         grid.add_column(justify="right")
-        left = Text("study", style="bold")
+        left = Text()
+        left.append("study", style="bold")
         left.append(f"  {now:%A} {now.day} {now:%B}", style="dim")
         grid.add_row(left, self._timer_text(now, week_minutes))
         return grid
@@ -260,7 +262,7 @@ class StudyApp(App):
     def banner(self) -> Text | None:
         """Anything overdue or due within 24 hours. Shown on every screen until it's dealt with."""
         now = datetime.now()
-        overdue, soon = banner_groups(self.store.list_deadlines(), now)
+        overdue, soon = banner_groups(self.store.list_deadlines(active_only=True), now)
         if not overdue and not soon:
             return None
         palette = themes.active()
@@ -289,7 +291,7 @@ class StudyApp(App):
     def toast_new_deadlines(self, launching: bool = False) -> None:
         """A toast for deadlines that have come inside the warning window since the last one."""
         now = datetime.now()
-        near = [d for d in within(self.store.list_deadlines(), now, self.cfg.toast_window)
+        near = [d for d in within(self.store.list_deadlines(active_only=True), now, self.cfg.toast_window)
                 if (d.id, d.due_at) not in self._toasted]
         if not near:
             return

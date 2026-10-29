@@ -578,3 +578,47 @@ def test_sync_key_without_setup_explains(store: Store) -> None:
         assert any("study sync --init" in n.message for n in app._notifications)
 
     run(store, script)
+
+
+# ---------- done subjects ----------
+
+def test_space_marks_a_subject_done_and_h_shows_the_done_pane(demo_store: Store) -> None:
+    dat = demo_store.find_course("DAT255")
+
+    async def script(app, pilot):
+        await pilot.press("space")  # first subject: DAT255
+        await pilot.pause()
+        assert demo_store.get_course(dat.id).done
+        courses = app.screen.query_one("#courses")
+        assert dat.id not in [row.data for row in courses.children]
+        done_pane = app.screen.query_one("#done-courses")
+        assert not done_pane.display  # hidden by default
+        assert "1 done · h shows it" in str(courses.border_subtitle)
+        assert all(d.course_id != dat.id for d in app.screen.dash.deadlines)
+        await pilot.press("h")
+        await pilot.pause()
+        assert done_pane.display and [row.data for row in done_pane.children] == [dat.id]
+        assert app.screen.focused is done_pane
+        await pilot.press("space")  # active again
+        await pilot.pause()
+        assert not demo_store.get_course(dat.id).done
+        assert dat.id in [row.data for row in app.screen.query_one("#courses").children]
+        await pilot.press("h")
+        await pilot.pause()
+        assert not app.screen.query_one("#done-courses").display
+
+    run(demo_store, script)
+
+
+def test_a_done_subject_still_opens(demo_store: Store) -> None:
+    from study.tui.subject import SubjectScreen
+
+    dat = demo_store.find_course("DAT255")
+    demo_store.set_course_done(dat.id, True)
+
+    async def script(app, pilot):
+        await pilot.press("h", "enter")
+        await pilot.pause()
+        assert isinstance(app.screen, SubjectScreen) and app.screen.course_id == dat.id
+
+    run(demo_store, script)

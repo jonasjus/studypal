@@ -269,6 +269,10 @@ MIGRATIONS: list[str] = [
         update section set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where rowid = new.rowid;
     end;
     """,
+    """
+    -- Subjects you're done with: hidden from the overview, their deadlines and weak spots go quiet.
+    alter table course add column done integer not null default 0;
+    """,
 ]
 
 
@@ -359,7 +363,7 @@ class Store:
     def _course(r: sqlite3.Row) -> Course:
         return Course(
             id=r["id"], name=r["name"], code=r["code"], cram_start=_d(r["cram_start"]),
-            exam_date=_d(r["exam_date"]), color=r["color"], notes=r["notes"],
+            exam_date=_d(r["exam_date"]), color=r["color"], notes=r["notes"], done=bool(r["done"]),
         )
 
     def next_color(self) -> str:
@@ -376,9 +380,9 @@ class Store:
         try:
             with self._tx() as c:
                 cur = c.execute(
-                    "insert into course (name, code, cram_start, exam_date, color, notes) values (?, ?, ?, ?, ?, ?)",
+                    "insert into course (name, code, cram_start, exam_date, color, notes, done) values (?, ?, ?, ?, ?, ?, ?)",
                     (course.name.strip(), course.code.strip(), _iso(course.cram_start), _iso(course.exam_date),
-                     course.color, course.notes),
+                     course.color, course.notes, int(course.done)),
                 )
                 course.id = cur.lastrowid
                 c.execute(
@@ -396,9 +400,10 @@ class Store:
         try:
             with self._tx() as c:
                 cur = c.execute(
-                    "update course set name = ?, code = ?, cram_start = ?, exam_date = ?, color = ?, notes = ? where id = ?",
+                    "update course set name = ?, code = ?, cram_start = ?, exam_date = ?, color = ?, notes = ?, done = ?"
+                    " where id = ?",
                     (course.name.strip(), course.code.strip(), _iso(course.cram_start), _iso(course.exam_date),
-                     course.color, course.notes, course.id),
+                     course.color, course.notes, int(course.done), course.id),
                 )
                 if cur.rowcount == 0:
                     raise StorageError("That course no longer exists.")
@@ -438,9 +443,18 @@ class Store:
         r = self.conn.execute("select * from course where id = ?", (course_id,)).fetchone()
         return self._course(r) if r else None
 
-    def list_courses(self) -> list[Course]:
-        """Courses in exam order: soonest exam first."""
-        return [self._course(r) for r in self.conn.execute("select * from course order by exam_date, code")]
+    def list_courses(self, done: bool | None = None) -> list[Course]:
+        """Courses in exam order: soonest exam first. done=False for active ones only, True for done only."""
+        where = "" if done is None else f" where done = {int(done)}"
+        return [self._course(r) for r in self.conn.execute(f"select * from course{where} order by exam_date, code")]
+
+    def set_course_done(self, course_id: int, done: bool) -> Course:
+        with self._tx() as c:
+            c.execute("update course set done = ? where id = ?", (int(done), course_id))
+        course = self.get_course(course_id)
+        if course is None:
+            raise StorageError("That course no longer exists.")
+        return course
 
     def find_course(self, ref: str) -> Course:
         """Look a course up by code, name, or an unambiguous prefix of either (case-insensitive)."""
@@ -581,10 +595,14 @@ class Store:
         r = self.conn.execute("select * from weak_spot where id = ?", (weak_id,)).fetchone()
         return self._weak(r) if r else None
 
-    def list_weak_spots(self, course_id: int | None = None, include_resolved: bool = False) -> list[WeakSpot]:
-        """Open weak spots first by priority (high first), then oldest first."""
+    def list_weak_spots(self, course_id: int | None = None, include_resolved: bool = False,
+                        active_only: bool = False) -> list[WeakSpot]:
+        """Open weak spots first by priority (high first), then oldest first.
+        active_only leaves out subjects marked done."""
         sql = "select * from weak_spot where 1 = 1"
         args: list[object] = []
+        if active_only:
+            sql += " and course_id in (select id from course where done = 0)"
         if course_id is not None:
             sql += " and course_id = ?"
             args.append(course_id)
@@ -650,10 +668,14 @@ class Store:
         r = self.conn.execute("select * from deadline where id = ?", (deadline_id,)).fetchone()
         return self._deadline(r) if r else None
 
-    def list_deadlines(self, course_id: int | None = None, include_done: bool = False) -> list[Deadline]:
-        """Soonest first. Overdue deadlines that aren't done are included (they sort first)."""
+    def list_deadlines(self, course_id: int | None = None, include_done: bool = False,
+                       active_only: bool = False) -> list[Deadline]:
+        """Soonest first. Overdue deadlines that aren't done are included (they sort first).
+        active_only leaves out deadlines of subjects marked done (standalone deadlines stay)."""
         sql = "select * from deadline where 1 = 1"
         args: list[object] = []
+        if active_only:
+            sql += " and (course_id is null or course_id in (select id from course where done = 0))"
         if course_id is not None:
             sql += " and course_id = ?"
             args.append(course_id)

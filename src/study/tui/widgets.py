@@ -113,6 +113,18 @@ class CourseRow:
         yield Text("  " + " · ".join(facts), style=MUTED, overflow="ellipsis", no_wrap=True)
 
 
+def done_row(s: CourseSummary) -> Text:
+    """A finished subject: one quiet line."""
+    c = s.course
+    text = Text()
+    text.append("✓ ", style=themes.active().success)
+    text.append(c.code, style=f"bold {accent(c)}")
+    text.append(f"  {c.name}")
+    text.append(f"   exam {c.exam_date:%d.%m.%Y} · {format_minutes(s.total_minutes)} studied · "
+                f"{round(s.progress.done * 100)}% done", style=MUTED)
+    return text
+
+
 class BigTimeline:
     """The subject screen's timeline: a thicker bar with dates underneath and today marked."""
 

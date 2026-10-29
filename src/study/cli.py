@@ -116,11 +116,15 @@ def status() -> None:
     with opened() as (store, cfg):
         dash = dashboard.build(store, cfg)
     console.print()
-    if not dash.courses:
+    if not dash.courses and not dash.done_courses:
         console.print("No courses yet. Add one with [bold]study add course \"Machine Learning\" INF301 --exam 10.12.2026[/].")
         return
     for summary in dash.courses:
         console.print(course_block(summary, width=32))
+        console.print()
+    if dash.done_courses:
+        names = ", ".join(s.course.code for s in dash.done_courses)
+        console.print(Text(f"Done: {names} (not shown; study done --undo CODE brings one back)", style="dim"))
         console.print()
     console.print(week_chart(dash))
     if line := active_timer_line(dash, cfg.pomodoro):
@@ -134,7 +138,7 @@ def status() -> None:
 
 @app.command()
 def due(
-    all_: Annotated[bool, typer.Option("--all", "-a", help="Include deadlines already done.")] = False,
+    all_: Annotated[bool, typer.Option("--all", "-a", help="Include deadlines already done, and those of done subjects.")] = False,
     within: Annotated[Optional[int], typer.Option("--within", "-w", help="Only the next N days (overdue always shown).")] = None,
 ) -> None:
     """List upcoming deadlines, soonest first."""
@@ -143,7 +147,7 @@ def due(
 
     with opened() as (store, cfg):
         dash = dashboard.build(store, cfg)
-        deadlines = store.list_deadlines(include_done=all_)
+        deadlines = store.list_deadlines(include_done=all_, active_only=not all_)
     if within is not None:
         deadlines = [d for d in deadlines if d.due_at - dash.now < timedelta(days=within)]
     if not deadlines:
@@ -152,6 +156,30 @@ def due(
     console.print()
     console.print(deadlines_table(deadlines, dash))
     console.print()
+
+
+@app.command("done")
+def done_command(
+    course: Annotated[Optional[str], typer.Argument(help="Course code or name. Leave out to list done subjects.")] = None,
+    undo: Annotated[bool, typer.Option("--undo", help="Make the subject active again.")] = False,
+) -> None:
+    """Mark a subject done: it leaves the overview, and its deadlines and weak spots go quiet."""
+    from .logic.stats import format_minutes
+
+    with opened() as (store, _):
+        if course is None:
+            done = store.list_courses(done=True)
+            if not done:
+                console.print("No subjects are done yet.")
+            for c in done:
+                console.print(Text.assemble("✓ ", (c.code, f"bold {c.color}"), f"  {c.name}",
+                                            (f"   exam {format_date(c.exam_date)} · "
+                                             f"{format_minutes(store.total_minutes(c.id))} studied", "dim")))
+            return
+        c = store.set_course_done(store.find_course(course).id, not undo)
+    console.print(f"{c.code} is active again." if undo else
+                  f"{c.code} is done. It's out of the overview and its deadlines won't notify you; "
+                  f"study done --undo {c.code} brings it back.")
 
 
 @app.command("log")

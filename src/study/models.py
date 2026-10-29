@@ -61,6 +61,7 @@ class Course:
     exam_date: date
     color: str = COURSE_COLORS[0]
     notes: str = ""
+    done: bool = False  # finished with: moved out of the way, its deadlines and weak spots go quiet
     id: int | None = None
 
 

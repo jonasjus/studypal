@@ -54,6 +54,17 @@ Screen {
     height: 1fr;
 }
 
+/* Subjects marked done: hidden until h shows them. */
+#done-courses {
+    display: none;
+    height: auto;
+    max-height: 14;
+}
+
+#done-courses.-shown {
+    display: block;
+}
+
 #deadlines {
     height: 2fr;
     min-height: 6;

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from .config import Config
@@ -37,13 +37,14 @@ class Dashboard:
     week_minutes: list[int]  # per day, aligned with week_days
     timer: ActiveTimer | None
     pomodoro: PomodoroRun | None
+    done_courses: list[CourseSummary] = field(default_factory=list)  # marked done; kept out of the way
 
     @property
     def today(self) -> date:
         return self.now.date()
 
     def course(self, course_id: int | None) -> Course | None:
-        return next((s.course for s in self.courses if s.course.id == course_id), None)
+        return next((s.course for s in self.courses + self.done_courses if s.course.id == course_id), None)
 
 
 def build(store: Store, cfg: Config, now: datetime | None = None) -> Dashboard:
@@ -51,8 +52,8 @@ def build(store: Store, cfg: Config, now: datetime | None = None) -> Dashboard:
     today = now.date()
     week_start, week_end = week_range(today, cfg.week_start)
     week_sessions = store.list_sessions(since=week_start, until=week_end)
-    deadlines = store.list_deadlines()
-    weak = store.list_weak_spots()
+    deadlines = store.list_deadlines(active_only=True)
+    weak = store.list_weak_spots(active_only=True)
 
     summaries = []
     for course in store.list_courses():
@@ -73,7 +74,8 @@ def build(store: Store, cfg: Config, now: datetime | None = None) -> Dashboard:
     first_day = week_start.date()
     return Dashboard(
         now=now,
-        courses=summaries,
+        courses=[s for s in summaries if not s.course.done],
+        done_courses=[s for s in summaries if s.course.done],
         deadlines=deadlines,
         weak_spots=weak,
         week_days=[first_day + timedelta(days=i) for i in range(7)],

@@ -35,7 +35,7 @@ def to_markdown(store: Store, now: datetime | None = None) -> str:
         topics = store.list_topics(course.id)
         p = cram_progress(course, topics, now.date())
         out += [
-            f"## {course.code} · {course.name}", "",
+            f"## {course.code} · {course.name}" + (" (done)" if course.done else ""), "",
             f"Cram {format_date(course.cram_start)} → exam {format_date(course.exam_date)} · {round(p.done * 100)}% done · "
             f"{format_minutes(store.total_minutes(course.id))} studied",
             "",

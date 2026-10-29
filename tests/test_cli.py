@@ -127,3 +127,14 @@ def test_reading_commands(tmp_path: Path, course: None) -> None:
     assert "[x] 6.1  Dual Representations" in out and "→ Kernels and SVMs" in out
     md = study("export")
     assert "### Reading" in md and "- [x] 6.1 Dual Representations" in md
+
+
+def test_done_command(course: None) -> None:
+    study("add", "deadline", "Problem set", "+1d 14:00", "--course", "inf")
+    assert "INF301 is done" in study("done", "inf")
+    assert "✓ INF301" in study("done")
+    assert "Done: INF301" in study("status")
+    assert "Problem set" not in study("due") and "Problem set" in study("due", "--all")
+    assert study("notify", "--dry-run") == ""
+    assert "active again" in study("done", "inf", "--undo")
+    assert "No subjects are done yet" in study("done")

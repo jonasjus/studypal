@@ -18,7 +18,7 @@ from .. import dashboard
 from ..dashboard import Dashboard
 from ..models import Deadline, WeakSpot
 from .actions import CourseActions, matches
-from .widgets import CourseRow, Row, VimList, WeekChart, DeadlineRow, empty_row, weak_row
+from .widgets import CourseRow, DeadlineRow, Row, VimList, WeekChart, done_row, empty_row, weak_row
 
 
 class OverviewScreen(CourseActions, Screen):
@@ -39,12 +39,14 @@ class OverviewScreen(CourseActions, Screen):
         Binding("slash", "filter", "Filter", key_display="/"),
         Binding("r", "reading", "Reading", show=False),
         Binding("escape", "clear_filter", "Clear filter", show=False),
+        Binding("h", "toggle_done_pane", "Done subjects", show=False),
     ]
 
     def __init__(self) -> None:
         super().__init__()
         self.dash: Dashboard | None = None
         self.filter_text = ""
+        self.show_done = False  # the Done pane starts hidden
         self._reload_lock = asyncio.Lock()  # typing a filter fires reloads faster than they finish
 
     def compose(self) -> ComposeResult:
@@ -53,6 +55,7 @@ class OverviewScreen(CourseActions, Screen):
         with Horizontal(id="overview"):
             with Vertical(id="left"):
                 yield VimList(id="courses", classes="pane")
+                yield VimList(id="done-courses", classes="pane")
             with Vertical(id="right"):
                 yield VimList(id="deadlines", classes="pane")
                 yield VimList(id="weak", classes="pane")
@@ -65,6 +68,7 @@ class OverviewScreen(CourseActions, Screen):
         self.query_one("#deadlines").border_title = "Upcoming deadlines"
         self.query_one("#weak").border_title = "Weak spots"
         self.query_one("#week").border_title = "This week"
+        self.query_one("#done-courses").border_title = "Done"
         await self.reload()
         self.query_one("#courses").focus()
         # The launch toast goes on this screen, once it's showing (the overview is mounted once per run).
@@ -93,7 +97,19 @@ class OverviewScreen(CourseActions, Screen):
         await self._fill("#courses", [
             Row(CourseRow(s, i if i <= 9 else None), s.course.id) for i, s in numbered
             if matches(q, s.course.code, s.course.name)
-        ] or [empty_row("No subjects match the filter." if q else "No courses yet. Press a to add your first one.")])
+        ] or [empty_row("No subjects match the filter." if q else
+                        "No active subjects. Press a to add one." if dash.done_courses else
+                        "No courses yet. Press a to add your first one.")])
+
+        done = [s for s in dash.done_courses if matches(q, s.course.code, s.course.name)]
+        await self._fill("#done-courses", [Row(done_row(s), s.course.id) for s in done]
+                         or [empty_row("No done subjects match the filter." if q else "No subjects are done yet.")])
+        done_pane = self.query_one("#done-courses")
+        done_pane.set_class(self.show_done, "-shown")
+        n_done = len(dash.done_courses)
+        done_pane.border_subtitle = f"{n_done} done · h hides {'it' if n_done == 1 else 'them'}"
+        self.query_one("#courses").border_subtitle = (
+            f"{n_done} done · h shows {'it' if n_done == 1 else 'them'}" if n_done and not self.show_done else "")
 
         await self._fill("#deadlines", [
             Row(DeadlineRow(d, dash.now, courses.get(d.course_id)), d) for d in dash.deadlines
@@ -132,6 +148,8 @@ class OverviewScreen(CourseActions, Screen):
             item = focused.current
             if isinstance(item, (Deadline, WeakSpot)) and item.course_id is not None:
                 return item.course_id
+        if isinstance(focused, VimList) and focused.id == "done-courses" and isinstance(focused.current, int):
+            return focused.current
         courses = self.query_one("#courses", VimList)
         return courses.current if isinstance(courses.current, int) else None
 
@@ -211,5 +229,31 @@ class OverviewScreen(CourseActions, Screen):
             self.toggle_deadline(item)
         elif isinstance(item, WeakSpot):
             self.toggle_weak(item)
+        elif isinstance(item, int) and focused.id in ("courses", "done-courses"):
+            self.toggle_course_done(item)
         else:
-            self.app.notify("Space marks a deadline done or a weak spot resolved. Tab to one of those panes first.")
+            self.app.notify("Space marks a subject, deadline or weak spot done.")
+
+    def toggle_course_done(self, course_id: int) -> None:
+        course = self.app.store.get_course(course_id)
+        if course is None:
+            return
+        course = self._try(self.app.store.set_course_done, course_id, not course.done)
+        if course is None:
+            return
+        if course.done:
+            where = "in the Done pane" if self.show_done else "moved to the Done pane (h shows it)"
+            self._done(f"{course.code} is done: {where}. Its deadlines and weak spots are quiet now.")
+        else:
+            self._done(f"{course.code} is active again.")
+
+    async def action_toggle_done_pane(self) -> None:
+        self.show_done = not self.show_done
+        await self.reload()
+        if self.show_done:
+            pane = self.query_one("#done-courses")
+            pane.focus()
+            if self.dash and not self.dash.done_courses:
+                self.app.notify("No subjects are done yet. Space on a subject marks it done.")
+        else:
+            self.query_one("#courses").focus()

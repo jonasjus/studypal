@@ -34,7 +34,7 @@ from .storage import Store
 
 # Fields stored for each table (besides uid, updated and links).
 FIELDS: dict[str, list[str]] = {
-    "course": ["name", "code", "cram_start", "exam_date", "color", "notes"],
+    "course": ["name", "code", "cram_start", "exam_date", "color", "notes", "done"],
     "topic": ["title", "status", "confidence", "last_studied"],
     "source": ["title", "author", "position"],
     "chapter": ["number", "title", "position"],

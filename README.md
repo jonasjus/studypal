@@ -122,7 +122,8 @@ logging time or starting a Pomodoro on that course.
 | `w` | note a weak spot | same |
 | `s` | start the timer; `s` again stops and logs it | same, on the highlighted topic |
 | `p` / `n` / `P` | Pomodoro: start, pause/resume · next block · stop and log | same |
-| `space` | mark a deadline done / resolve a weak spot | same; on a topic, move it to the next status |
+| `space` | mark a subject, deadline or weak spot done | same (no subjects here); on a topic, move it to the next status |
+| `h` | show / hide the Done pane (subjects marked done) | |
 | `e` / `d` | edit / delete what's highlighted (`d` asks first) | same; `E` edits the course |
 | `+` / `-` | | change the highlighted topic's confidence |
 | `/` | filter every pane by text (`esc` clears) | same |
@@ -131,6 +132,14 @@ logging time or starting a Pomodoro on that course.
 | `r` | reading list of the current course | same; from a topic, at its chapter |
 | `G` | sync with git now | same |
 | `?` / `q` | help / quit | same |
+
+### Done subjects
+
+When you're finished with a subject (exam over, or dropped), press `space` on it in the overview,
+or run `study done INF301`. It moves to a Done pane that's hidden until you press `h`, and its
+deadlines and weak spots stop showing up in lists, the banner, toasts and notifications. Nothing is
+deleted: it still opens with `enter`, still counts in your weekly study time, and `space` in the
+Done pane (or `study done --undo INF301`) makes it active again.
 
 ## Reading list
 
@@ -199,6 +208,7 @@ study add deadline "Problem set 4" "fri 14:00" --course INF301 [--type assignmen
 
 study log INF301 1h30m [--topic kernels] [--note "Bishop ch. 7"] [--at "today 09:00"]
 study weak INF301 "Dual form derivation" --priority high      # shortcut for add weak
+study done INF301 [--undo]              # mark a subject done (or active again); no code lists done ones
 
 study export --format md [-o study.md]  # one readable document (printed if no -o)
 study export --format csv [-o folder]   # one CSV per table

@@ -21,7 +21,8 @@ class SendResult:
 
 def due_alerts(store: Store, cfg: Config, now: datetime) -> list[Alert]:
     codes = {c.id: c.code for c in store.list_courses()}
-    return pending_alerts(store.list_deadlines(), now, cfg.thresholds, cfg.morning_time, store.sent_keys(), codes)
+    return pending_alerts(store.list_deadlines(active_only=True), now, cfg.thresholds, cfg.morning_time,
+                          store.sent_keys(), codes)
 
 
 def send_due(store: Store, cfg: Config, now: datetime | None = None,
