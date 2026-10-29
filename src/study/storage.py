@@ -122,6 +122,13 @@ MIGRATIONS: list[str] = [
         note              text not null default ''
     );
     """,
+    """
+    -- Small preferences chosen inside the app (the theme), as opposed to config.toml.
+    create table setting (
+        key    text primary key,
+        value  text not null
+    );
+    """,
 ]
 
 
@@ -527,6 +534,20 @@ class Store:
                 (_iso(session.started_at.date()), session.topic_id),
             )
 
+    def update_session(self, session: Session) -> Session:
+        if session.minutes <= 0:
+            raise StorageError("A session needs at least one minute.")
+        with self._tx() as c:
+            c.execute(
+                "update session set topic_id = ?, started_at = ?, minutes = ?, note = ? where id = ?",
+                (session.topic_id, _iso(session.started_at), session.minutes, session.note.strip(), session.id),
+            )
+        return session
+
+    def get_session(self, session_id: int) -> Session | None:
+        r = self.conn.execute("select * from session where id = ?", (session_id,)).fetchone()
+        return self._session(r) if r else None
+
     def delete_session(self, session_id: int) -> None:
         with self._tx() as c:
             c.execute("delete from session where id = ?", (session_id,))
@@ -709,6 +730,17 @@ class Store:
             blocks = pomo.stop(run, now or datetime.now(), settings)
             c.execute("delete from pomodoro_run where id = 1")
             return self._log_blocks(c, run, blocks)
+
+    # ---------- settings ----------
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        r = self.conn.execute("select value from setting where key = ?", (key,)).fetchone()
+        return r["value"] if r else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._tx() as c:
+            c.execute("insert into setting (key, value) values (?, ?)"
+                      " on conflict (key) do update set value = excluded.value", (key, value))
 
     # ---------- notifications already sent ----------
 

@@ -46,9 +46,29 @@ logging time or starting a Pomodoro on that course.
 | `w` | note a weak spot | same |
 | `s` | start the timer; `s` again stops and logs it | same, on the highlighted topic |
 | `p` / `n` / `P` | Pomodoro: start, pause/resume · next block · stop and log | same |
-| `space` | mark a deadline done / resolve a weak spot | same |
+| `space` | mark a deadline done / resolve a weak spot | same; on a topic, move it to the next status |
+| `e` / `d` | edit / delete what's highlighted (`d` asks first) | same; `E` edits the course |
+| `+` / `-` | | change the highlighted topic's confidence |
+| `/` | filter every pane by text (`esc` clears) | same |
+| `T` | pick a colour theme | same |
 | `esc`, `[` / `]` | | back · previous / next subject |
 | `?` / `q` | help / quit | same |
+
+## Themes
+
+Press `T` in the dashboard (or run `study theme`) to pick a colour theme: moving through the list
+previews it, `enter` keeps it. The default, **terminal**, uses your terminal's own colours and
+background. The others paint their own: Gruvbox dark and light, Nord, Dracula, Catppuccin Mocha and
+Latte, Tokyo Night, Solarized dark and light, Rosé Pine, One Dark and Monokai.
+
+Warning colours and course accents follow the theme: a course on one of the default colours is drawn
+in that theme's matching shade, so a blue course stays blue but becomes gruvbox blue. A colour you set
+yourself is kept. The choice applies to the dashboard; CLI output keeps your terminal's colours.
+
+```sh
+study theme                 # list them
+study theme gruvbox         # use one
+```
 
 ## Commands
 

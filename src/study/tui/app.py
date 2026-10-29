@@ -14,11 +14,12 @@ from textual.screen import ModalScreen
 from textual.theme import BUILTIN_THEMES, Theme
 from textual.widgets import Static
 
-from .. import notifier
+from .. import notifier, themes
 from ..config import Config
 from ..logic.pomodoro import PomoPhase, remaining
 from ..logic.stats import format_minutes
 from ..pomo_watch import phase_message
+from ..render import accent, warning
 from ..storage import Store
 
 HELP = """\
@@ -39,6 +40,9 @@ HELP = """\
   s            start the timer; s again stops it and logs the session
   p            start a Pomodoro; while running, pause / resume
   n            next focus block (or skip the break)      P   stop the Pomodoro and log it
+  e / d        edit / delete what's highlighted (E on a subject edits the course)
+  + / -        change a topic's confidence   space on a topic   next status
+  /            filter the lists (esc clears) T   pick a colour theme
   ?            this help                     q   quit
 
 Every change is saved immediately. A running timer or Pomodoro keeps going if you quit.
@@ -80,11 +84,21 @@ def study_theme() -> Theme:
     )
 
 
+# Textual ships gruvbox dark only.
+GRUVBOX_LIGHT = Theme(
+    name="gruvbox-light", dark=False,
+    primary="#076678", secondary="#427b58", accent="#af3a03",
+    warning="#b57614", error="#9d0006", success="#79740e",
+    foreground="#3c3836", background="#fbf1c7", surface="#f2e5bc", panel="#ebdbb2",
+)
+
+
 class StudyApp(App):
     CSS_PATH = "study.tcss"
     TITLE = "study"
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [
+        Binding("T", "pick_theme", "Theme"),
         Binding("q", "quit", "Quit"),
         Binding("question_mark", "help", "Help", key_display="?"),
     ]
@@ -97,7 +111,8 @@ class StudyApp(App):
 
     def on_mount(self) -> None:
         self.register_theme(study_theme())
-        self.theme = "study"
+        self.register_theme(GRUVBOX_LIGHT)
+        self.apply_theme(self.store.get_setting("theme", themes.DEFAULT.name))
         from .overview import OverviewScreen
 
         self.push_screen(OverviewScreen())
@@ -114,9 +129,30 @@ class StudyApp(App):
         self.push_screen(SubjectScreen(course_id))
 
     def refresh_everything(self) -> None:
-        reload = getattr(self.screen, "reload", None)
-        if reload is not None:
-            self.call_later(reload)
+        for screen in self.screen_stack:  # screens under a dialog too, so a theme preview shows through
+            reload = getattr(screen, "reload", None)
+            if reload is not None:
+                self.call_later(reload)
+
+    # ----- themes -----
+
+    def apply_theme(self, name: str | None) -> None:
+        palette = themes.get(name)
+        themes.set_active(palette)
+        self.theme = palette.textual
+        self.refresh_everything()
+
+    def action_pick_theme(self) -> None:
+        from .dialogs import ThemePicker
+
+        current = themes.active().name
+
+        def keep(name: str | None) -> None:
+            if name is not None:
+                self.store.set_setting("theme", name)
+                self.notify(f"Theme: {themes.get(name).label}.")
+
+        self.push_screen(ThemePicker(current), keep)
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
@@ -138,14 +174,14 @@ class StudyApp(App):
             text = Text(f"Pomodoro · {run.phase.label}", style="bold")
             left = remaining(run, now, self.cfg.pomodoro)
             if run.paused:
-                text.append(" · paused", style="yellow")
+                text.append(" · paused", style=warning())
             if left is not None:
                 mins, secs = divmod(int(left.total_seconds()), 60)
                 text.append(f" {mins:02d}:{secs:02d}")
             elif run.phase is PomoPhase.READY:
-                text.append(" · press n for the next block", style="yellow")
+                text.append(" · press n for the next block", style=warning())
             if course:
-                text.append(f"  {course.code}", style=course.color)
+                text.append(f"  {course.code}", style=accent(course))
             return text
         timer = self.store.get_timer()
         if timer:
@@ -153,7 +189,7 @@ class StudyApp(App):
             text = Text("Timer ", style="bold")
             text.append(format_minutes(int((now - timer.started_at).total_seconds() // 60)))
             if course:
-                text.append(f"  {course.code}", style=course.color)
+                text.append(f"  {course.code}", style=accent(course))
             text.append("  s to stop", style="dim")
             return text
         if week_minutes is not None:

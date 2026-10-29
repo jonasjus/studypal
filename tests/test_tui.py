@@ -214,3 +214,156 @@ def test_help_opens_and_closes(store: Store) -> None:
         assert isinstance(app.screen, OverviewScreen)
 
     run(store, script)
+
+
+# ---------- stage 4: editing, deleting, filtering, themes ----------
+
+def test_confidence_and_status_keys_on_topics(store: Store) -> None:
+    course = store.add_course(Course("Statistics", "ST", date.today() - timedelta(days=5), date.today() + timedelta(days=20)))
+    topic = store.add_topic(Topic(course.id, "Likelihood", confidence=3))
+
+    async def script(app, pilot):
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("plus", "plus", "plus")  # stops at 5
+        await pilot.pause()
+        assert store.get_topic(topic.id).confidence == 5
+        await pilot.press("minus")
+        await pilot.press("space", "space")  # not started -> in progress -> reviewed
+        await pilot.pause()
+
+    run(store, script)
+    t = store.get_topic(topic.id)
+    assert t.confidence == 4 and t.status.value == "reviewed"
+
+
+def test_edit_topic_form_saves_changes(store: Store) -> None:
+    course = store.add_course(Course("Statistics", "ST", date.today() - timedelta(days=5), date.today() + timedelta(days=20)))
+    topic = store.add_topic(Topic(course.id, "Likelyhood"))
+
+    async def script(app, pilot):
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        assert isinstance(app.screen, FormModal)
+        await pilot.press(*list("Likelihood"), "enter")  # the title starts selected, so typing replaces it
+        await pilot.pause()
+
+    run(store, script)
+    assert store.get_topic(topic.id).title == "Likelihood"
+
+
+def test_editing_the_course_moves_its_exam_deadline(store: Store) -> None:
+    course = store.add_course(Course("Statistics", "ST", date.today() - timedelta(days=5), date.today() + timedelta(days=20)))
+    new_exam = date.today() + timedelta(days=25)
+
+    async def script(app, pilot):
+        await pilot.press("e")  # highlighted subject
+        await pilot.pause()
+        assert isinstance(app.screen, FormModal)
+        exam = app.screen.query_one("#f-exam")
+        exam.value = new_exam.isoformat()
+        await pilot.click("#f-exam")
+        await pilot.press("enter")
+        await pilot.pause()
+
+    run(store, script)
+    assert store.get_course(course.id).exam_date == new_exam
+    exam = next(d for d in store.list_deadlines() if d.is_course_exam)
+    assert exam.due_at.date() == new_exam
+
+
+def test_delete_asks_first_and_n_keeps_it(demo_store: Store) -> None:
+    before = len(demo_store.list_courses())
+
+    async def script(app, pilot):
+        await pilot.press("d")
+        await pilot.pause()
+        assert "Delete DAT255" in str(app.screen.query_one("#form-title").render())
+        await pilot.press("n")
+        await pilot.pause()
+        assert len(demo_store.list_courses()) == before
+        await pilot.press("d", "y")
+        await pilot.pause()
+
+    run(demo_store, script)
+    assert [c.code for c in demo_store.list_courses()] == ["INF301", "STK310", "INF395"]
+
+
+def test_course_exam_deadline_cannot_be_deleted_from_the_tui(demo_store: Store) -> None:
+    async def script(app, pilot):
+        await pilot.press("tab")
+        lv = app.screen.focused
+        exam_index = next(i for i, row in enumerate(lv.children) if getattr(row.data, "is_course_exam", False))
+        lv.index = exam_index
+        await pilot.press("d")
+        await pilot.pause()
+        assert isinstance(app.screen, OverviewScreen)  # no confirmation; a warning instead
+
+    run(demo_store, script)
+    assert len([d for d in demo_store.list_deadlines() if d.is_course_exam]) == 4
+
+
+def test_filter_narrows_lists_and_esc_clears_it(demo_store: Store) -> None:
+    async def script(app, pilot):
+        await pilot.press("slash", *list("stk"))
+        await pilot.pause()
+        courses = app.screen.query_one("#courses")
+        assert [row.data for row in courses.children] == [demo_store.find_course("STK310").id]
+        deadlines = app.screen.query_one("#deadlines")
+        assert all(row.data.course_id == demo_store.find_course("STK310").id for row in deadlines.children)
+        await pilot.press("enter", "escape")
+        await pilot.pause()
+        assert len(app.screen.query_one("#courses").children) == 4
+
+    run(demo_store, script)
+
+
+def test_delete_a_session_from_the_subject_screen(demo_store: Store) -> None:
+    inf = demo_store.find_course("INF301")
+    newest = demo_store.list_sessions(inf.id, limit=1)[0]
+
+    async def script(app, pilot):
+        await pilot.press("2")
+        await pilot.pause()
+        app.screen.query_one("#sessions").focus()
+        await pilot.press("d", "y")
+        await pilot.pause()
+
+    run(demo_store, script)
+    assert newest.id not in [s.id for s in demo_store.list_sessions(inf.id)]
+
+
+def test_theme_picker_previews_saves_and_cancels(store: Store) -> None:
+    from study import themes
+
+    async def script(app, pilot):
+        await pilot.press("T", "j")  # Gruvbox dark is second
+        await pilot.pause()
+        assert app.theme == "gruvbox"  # previewed
+        await pilot.press("enter")
+        await pilot.pause()
+        assert store.get_setting("theme") == "gruvbox"
+        await pilot.press("T", "j", "j")
+        await pilot.pause()
+        assert app.theme == "nord"
+        await pilot.press("escape")  # put the old one back
+        await pilot.pause()
+        assert app.theme == "gruvbox" and themes.active().name == "gruvbox"
+
+    run(store, script)
+    assert store.get_setting("theme") == "gruvbox"
+    themes.set_active(themes.DEFAULT)
+
+
+def test_saved_theme_is_used_on_start(store: Store) -> None:
+    from study import themes
+
+    store.set_setting("theme", "gruvbox-light")
+
+    async def script(app, pilot):
+        assert app.theme == "gruvbox-light" and themes.active().name == "gruvbox-light"
+
+    run(store, script)
+    themes.set_active(themes.DEFAULT)

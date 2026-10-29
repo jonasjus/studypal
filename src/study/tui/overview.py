@@ -6,16 +6,18 @@ highlighted deadline or weak spot.
 
 from __future__ import annotations
 
+import asyncio
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, ListView, Static
+from textual.widgets import Footer, Input, ListView, Static
 
 from .. import dashboard
 from ..dashboard import Dashboard
 from ..models import Deadline, WeakSpot
-from .actions import CourseActions
+from .actions import CourseActions, matches
 from .widgets import CourseRow, Row, VimList, WeekChart, deadline_row, empty_row, weak_row
 
 
@@ -32,11 +34,17 @@ class OverviewScreen(CourseActions, Screen):
         Binding("n", "pomodoro_next", "Next block", show=False),
         Binding("P", "pomodoro_stop", "Stop Pomodoro", show=False),
         Binding("space", "toggle", "Done", show=False),
+        Binding("e", "edit", "Edit"),
+        Binding("d", "delete", "Delete"),
+        Binding("slash", "filter", "Filter", key_display="/"),
+        Binding("escape", "clear_filter", "Clear filter", show=False),
     ]
 
     def __init__(self) -> None:
         super().__init__()
         self.dash: Dashboard | None = None
+        self.filter_text = ""
+        self._reload_lock = asyncio.Lock()  # typing a filter fires reloads faster than they finish
 
     def compose(self) -> ComposeResult:
         yield Static(id="topbar")
@@ -47,6 +55,7 @@ class OverviewScreen(CourseActions, Screen):
                 yield VimList(id="deadlines", classes="pane")
                 yield VimList(id="weak", classes="pane")
                 yield Static(id="week", classes="pane")
+        yield Input(id="filter", placeholder="Filter subjects, deadlines and weak spots (esc clears)")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -63,21 +72,34 @@ class OverviewScreen(CourseActions, Screen):
     # ----- data -----
 
     async def reload(self) -> None:
+        async with self._reload_lock:
+            await self._reload()
+
+    async def _reload(self) -> None:
         app = self.app
         self.dash = dash = dashboard.build(app.store, app.cfg)
         courses = {s.course.id: s.course for s in dash.courses}
+        q = self.filter_text
 
+        def code(course_id: int | None) -> str:
+            return courses[course_id].code if course_id in courses else ""
+
+        # Numbers 1-9 always follow the unfiltered order, so a course keeps its number while filtering.
+        numbered = [(i, s) for i, s in enumerate(dash.courses, start=1)]
         await self._fill("#courses", [
-            Row(CourseRow(s, i if i <= 9 else None), s.course.id) for i, s in enumerate(dash.courses, start=1)
-        ] or [empty_row("No courses yet. Press a to add your first one.")])
+            Row(CourseRow(s, i if i <= 9 else None), s.course.id) for i, s in numbered
+            if matches(q, s.course.code, s.course.name)
+        ] or [empty_row("No subjects match the filter." if q else "No courses yet. Press a to add your first one.")])
 
         await self._fill("#deadlines", [
             Row(deadline_row(d, dash.now, courses.get(d.course_id)), d) for d in dash.deadlines
-        ] or [empty_row("Nothing due. Press a here to add a deadline.")])
+            if matches(q, d.title, code(d.course_id), d.kind.value)
+        ] or [empty_row("No deadlines match the filter." if q else "Nothing due. Press a here to add a deadline.")])
 
         await self._fill("#weak", [
             Row(weak_row(w, dash.now, courses.get(w.course_id)), w) for w in dash.weak_spots
-        ] or [empty_row("No open weak spots.")])
+            if matches(q, w.description, code(w.course_id), w.priority.value)
+        ] or [empty_row("No weak spots match the filter." if q else "No open weak spots.")])
 
         self.query_one("#week", Static).update(WeekChart(dash.week_days, dash.week_minutes, dash.today))
         self.query_one("#deadlines").border_subtitle = f"{len(dash.deadlines)} open"
@@ -131,6 +153,44 @@ class OverviewScreen(CourseActions, Screen):
             self.action_add_weak()
         else:
             self.add_course()
+
+    # ----- edit, delete, filter -----
+
+    def _highlighted(self):
+        focused = self.focused
+        if isinstance(focused, VimList):
+            return focused.current
+        return self.query_one("#courses", VimList).current
+
+    def action_edit(self) -> None:
+        self.edit_item(self._highlighted())
+
+    def action_delete(self) -> None:
+        self.delete_item(self._highlighted())
+
+    def action_filter(self) -> None:
+        box = self.query_one("#filter", Input)
+        box.add_class("-shown")
+        box.focus()
+
+    async def action_clear_filter(self) -> None:
+        box = self.query_one("#filter", Input)
+        if not box.has_class("-shown"):
+            return
+        box.value = ""
+        box.remove_class("-shown")
+        self.filter_text = ""
+        await self.reload()
+        self.query_one("#courses").focus()
+
+    async def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "filter":
+            self.filter_text = event.value.strip()
+            await self.reload()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "filter":
+            self.query_one("#courses").focus()
 
     def action_toggle(self) -> None:
         focused = self.focused

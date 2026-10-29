@@ -8,14 +8,17 @@ from typing import TYPE_CHECKING, Any
 
 from ..logic.dates import DateParseError, parse_date, parse_datetime, parse_minutes
 from ..logic.stats import format_minutes
-from ..models import Course, Deadline, DeadlineKind, Priority, Session, Topic, WeakSpot
+from ..models import COURSE_COLORS, Course, Deadline, DeadlineKind, Priority, Session, Topic, TopicStatus, WeakSpot
 from ..storage import StorageError
+from .dialogs import ConfirmModal
 from .forms import Field, FormModal, FormSpec
 
 if TYPE_CHECKING:
     from .app import StudyApp
 
 ASSIGNMENT_TIME = time(23, 59)
+COLOR_NAMES = ("Blue", "Coral", "Teal", "Violet", "Amber", "Green", "Pink", "Slate")
+STATUS_ORDER = list(TopicStatus)
 
 
 def minutes_or_none(text: str) -> int | None:
@@ -23,6 +26,12 @@ def minutes_or_none(text: str) -> int | None:
         return parse_minutes(text)
     except DateParseError:
         return None
+
+
+def matches(query: str, *texts: str | None) -> bool:
+    """Case-insensitive: every word of the filter appears somewhere in the row's text."""
+    hay = " ".join(t for t in texts if t).lower()
+    return all(word in hay for word in query.lower().split())
 
 
 class CourseActions:
@@ -260,3 +269,224 @@ class CourseActions:
         w = self._try(self.app.store.toggle_weak_spot, weak.id)
         if w:
             self._done("Weak spot resolved." if w.resolved else "Weak spot reopened.")
+
+    def cycle_status(self, topic: Topic) -> None:
+        """Move a topic to its next status: not started → in progress → reviewed → confident → not started."""
+        topic.status = STATUS_ORDER[(STATUS_ORDER.index(topic.status) + 1) % len(STATUS_ORDER)]
+        if self._try(self.app.store.update_topic, topic):
+            self._done(f"{topic.title}: {topic.status.label}.")
+
+    def adjust_confidence(self, topic: Topic, delta: int) -> None:
+        t = self._try(self.app.store.adjust_confidence, topic.id, delta)
+        if t:
+            self._done(f"{t.title}: confidence {t.confidence}/5.")
+
+    # ----- edit -----
+
+    def edit_item(self, item: Any) -> None:
+        store = self.app.store
+        if isinstance(item, int):
+            item = store.get_course(item)
+        editors = {Course: self.edit_course, Topic: self.edit_topic, WeakSpot: self.edit_weak,
+                   Deadline: self.edit_deadline, Session: self.edit_session}
+        editor = editors.get(type(item))
+        if editor is None:
+            self.app.notify("Highlight something to edit first.", severity="warning")
+            return
+        editor(item)
+
+    def _date_check(self, *names: str, optional: tuple[str, ...] = ()):
+        today = datetime.now().date()
+
+        def check(v: dict) -> str | None:
+            for name in names:
+                if name in optional and not v[name]:
+                    continue
+                try:
+                    parse_date(v[name], today)
+                except DateParseError as e:
+                    return str(e)
+            return None
+
+        return check
+
+    def edit_course(self, course: Course) -> None:
+        colors = list(zip(COLOR_NAMES, COURSE_COLORS))
+        if course.color not in COURSE_COLORS:
+            colors.append((f"Custom {course.color}", course.color))
+        today = datetime.now().date()
+        spec = FormSpec(
+            title=f"Edit {course.code}",
+            fields=[
+                Field("name", "Name", course.name),
+                Field("code", "Short code", course.code),
+                Field("cram_start", "Cramming starts", course.cram_start.isoformat()),
+                Field("exam", "Exam date", course.exam_date.isoformat()),
+                Field("color", "Colour", course.color, options=colors),
+                Field("notes", "Notes", course.notes, optional=True),
+            ],
+            check=self._date_check("cram_start", "exam"),
+        )
+
+        def save(v: dict | None) -> None:
+            if v is None:
+                return
+            course.name, course.code, course.color, course.notes = v["name"], v["code"], v["color"], v["notes"]
+            course.cram_start, course.exam_date = parse_date(v["cram_start"], today), parse_date(v["exam"], today)
+            if self._try(self.app.store.update_course, course):
+                self._done(f"Saved {course.code}.")
+
+        self.app.push_screen(FormModal(spec), save)
+
+    def edit_topic(self, topic: Topic) -> None:
+        today = datetime.now().date()
+        spec = FormSpec(
+            title="Edit topic",
+            fields=[
+                Field("title", "Topic", topic.title),
+                Field("status", "Status", topic.status.value, options=[(s.label.capitalize(), s.value) for s in TopicStatus]),
+                Field("confidence", "Confidence", str(topic.confidence), options=[(f"{n}/5", str(n)) for n in range(1, 6)]),
+                Field("last", "Last studied", topic.last_studied.isoformat() if topic.last_studied else "",
+                      placeholder="e.g. today, -3d, 2026-11-02", optional=True),
+            ],
+            check=self._date_check("last", optional=("last",)),
+        )
+
+        def save(v: dict | None) -> None:
+            if v is None:
+                return
+            topic.title, topic.status, topic.confidence = v["title"], TopicStatus(v["status"]), int(v["confidence"])
+            topic.last_studied = parse_date(v["last"], today) if v["last"] else None
+            if self._try(self.app.store.update_topic, topic):
+                self._done(f"Saved {topic.title!r}.")
+
+        self.app.push_screen(FormModal(spec), save)
+
+    def edit_weak(self, weak: WeakSpot) -> None:
+        spec = FormSpec(
+            title="Edit weak spot",
+            fields=[
+                Field("description", "What's weak", weak.description),
+                Field("priority", "Priority", weak.priority.value,
+                      options=[("High", "high"), ("Medium", "med"), ("Low", "low")]),
+                Field("topic", "Topic", weak.topic_id or "",
+                      options=[(t.title, t.id) for t in self.app.store.list_topics(weak.course_id)], optional=True),
+            ],
+        )
+
+        def save(v: dict | None) -> None:
+            if v is None:
+                return
+            weak.description, weak.priority, weak.topic_id = v["description"], Priority(v["priority"]), v["topic"]
+            if self._try(self.app.store.update_weak_spot, weak):
+                self._done("Saved the weak spot.")
+
+        self.app.push_screen(FormModal(spec), save)
+
+    def edit_deadline(self, deadline: Deadline) -> None:
+        now = datetime.now()
+        fields = [
+            Field("title", "What's due", deadline.title),
+            Field("due", "Due", f"{deadline.due_at:%Y-%m-%d %H:%M}", placeholder="fri 14:00, 2026-12-01 09:00"),
+        ]
+        if not deadline.is_course_exam:  # the course's own exam stays tied to its course
+            fields += [
+                Field("course", "Course", deadline.course_id or "", optional=True,
+                      options=[(f"{c.code} · {c.name}", c.id) for c in self.app.store.list_courses()]),
+                Field("kind", "Type", deadline.kind.value,
+                      options=[("Assignment", "assignment"), ("Milestone", "milestone"), ("Exam", "exam")]),
+            ]
+
+        def check(v: dict) -> str | None:
+            try:
+                parse_datetime(v["due"], now, deadline.due_at.time())
+            except DateParseError as e:
+                return str(e)
+            return None
+
+        def save(v: dict | None) -> None:
+            if v is None:
+                return
+            deadline.title = v["title"]
+            deadline.due_at = parse_datetime(v["due"], datetime.now(), deadline.due_at.time())
+            if not deadline.is_course_exam:
+                deadline.course_id, deadline.kind = v["course"], DeadlineKind(v["kind"])
+            if self._try(self.app.store.update_deadline, deadline):
+                self._done(f"Saved {deadline.title!r}.")
+
+        self.app.push_screen(FormModal(FormSpec("Edit deadline", fields, check)), save)
+
+    def edit_session(self, session: Session) -> None:
+        now = datetime.now()
+        spec = FormSpec(
+            title="Edit session",
+            fields=[
+                Field("minutes", "How long", str(session.minutes), placeholder="45, 90m or 1h30m"),
+                Field("start", "Started", f"{session.started_at:%Y-%m-%d %H:%M}"),
+                Field("topic", "Topic", session.topic_id or "", optional=True,
+                      options=[(t.title, t.id) for t in self.app.store.list_topics(session.course_id)]),
+                Field("note", "Note", session.note, optional=True),
+            ],
+        )
+
+        def check(v: dict) -> str | None:
+            if (minutes_or_none(v["minutes"]) or 0) <= 0:
+                return "Use minutes, like 45, or 1h30m."
+            try:
+                parse_datetime(v["start"], now, session.started_at.time())
+            except DateParseError as e:
+                return str(e)
+            return None
+
+        spec.check = check
+
+        def save(v: dict | None) -> None:
+            if v is None:
+                return
+            session.minutes = minutes_or_none(v["minutes"]) or session.minutes
+            session.started_at = parse_datetime(v["start"], datetime.now(), session.started_at.time())
+            session.topic_id, session.note = v["topic"], v["note"]
+            if self._try(self.app.store.update_session, session):
+                self._done("Saved the session.")
+
+        self.app.push_screen(FormModal(spec), save)
+
+    # ----- delete -----
+
+    def delete_item(self, item: Any) -> None:
+        store = self.app.store
+        if isinstance(item, int):
+            item = store.get_course(item)
+        if isinstance(item, Course):
+            topics = store.list_topics(item.id)
+            weak = store.list_weak_spots(item.id, include_resolved=True)
+            deadlines = store.list_deadlines(item.id, include_done=True)
+            sessions = store.list_sessions(item.id)
+            detail = (f"This also deletes its {len(topics)} topics, {len(weak)} weak spots, {len(deadlines)} deadlines "
+                      f"and {len(sessions)} sessions ({format_minutes(sum(s.minutes for s in sessions))} of study). "
+                      "There's no undo. study export makes a copy first.")
+            title, action = f"Delete {item.code} · {item.name}?", lambda: store.delete_course(item.id)
+        elif isinstance(item, Topic):
+            title, detail = f"Delete the topic {item.title!r}?", "Its sessions and weak spots stay, without a topic."
+            action = lambda: store.delete_topic(item.id)  # noqa: E731
+        elif isinstance(item, WeakSpot):
+            title, detail, action = f"Delete the weak spot {item.description!r}?", "", lambda: store.delete_weak_spot(item.id)
+        elif isinstance(item, Deadline):
+            if item.is_course_exam:
+                self.app.notify("A course's exam goes with the course. Press e on it to move the date instead.",
+                                severity="warning")
+                return
+            title, detail, action = f"Delete the deadline {item.title!r}?", "", lambda: store.delete_deadline(item.id)
+        elif isinstance(item, Session):
+            title = f"Delete the {format_minutes(item.minutes)} session from {item.started_at:%a %d %b %H:%M}?"
+            detail, action = "", lambda: store.delete_session(item.id)
+        else:
+            self.app.notify("Highlight something to delete first.", severity="warning")
+            return
+
+        def answer(yes: bool | None) -> None:
+            if yes and self._try(action) is None:
+                self._done("Deleted.")
+
+        self.app.push_screen(ConfirmModal(title, detail), answer)
+

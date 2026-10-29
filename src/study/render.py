@@ -12,6 +12,7 @@ from rich.console import Group, RenderableType
 from rich.table import Table
 from rich.text import Text
 
+from . import themes
 from .dashboard import CourseSummary, Dashboard
 from .logic.countdown import Urgency, countdown, describe_days, urgency
 from .logic.pomodoro import PomodoroRun, PomodoroSettings, PomoPhase, remaining
@@ -19,15 +20,27 @@ from .logic.stats import format_minutes
 from .logic.timeline import Cell, CramProgress, Phase, timeline_cells
 from .models import Course, Deadline
 
-URGENCY_STYLE = {
-    Urgency.OVERDUE: "bold red",
-    Urgency.CRITICAL: "red",
-    Urgency.SOON: "yellow",
-    Urgency.LATER: "",
-    Urgency.DONE: "dim",
-}
-BEHIND_STYLE = "yellow"
 MUTED = "dim"
+
+
+def urgency_style(u: Urgency) -> str:
+    p = themes.active()
+    return {
+        Urgency.OVERDUE: f"bold {p.error}",
+        Urgency.CRITICAL: p.error,
+        Urgency.SOON: p.warning,
+        Urgency.LATER: "",
+        Urgency.DONE: MUTED,
+    }[u]
+
+
+def warning() -> str:
+    return themes.active().warning
+
+
+def accent(course: Course) -> str:
+    """The course's colour under the active theme."""
+    return themes.course_color(course.color)
 
 BAR_CHARS = {Cell.DONE: "━", Cell.BEHIND: "╍", Cell.TODO: "─"}  # behind is dashed so it shows without colour too
 MARKER = "┃"
@@ -45,7 +58,7 @@ def timeline(progress: CramProgress, color: str, width: int = 30) -> Text:
         elif cell is Cell.DONE:
             text.append(BAR_CHARS[cell], style=color)
         elif cell is Cell.BEHIND:
-            text.append(BAR_CHARS[cell], style=BEHIND_STYLE)
+            text.append(BAR_CHARS[cell], style=warning())
         else:
             text.append(BAR_CHARS[cell], style=MUTED)
     return text
@@ -61,7 +74,7 @@ def progress_words(p: CramProgress) -> Text:
         return Text(f"{done} · exam was {describe_days(p.days_left)}", style=MUTED)
     text = Text(f"{done} · {round(p.elapsed * 100)}% of cram time used")
     if p.is_behind:
-        text.append(f" · behind by {round(p.behind * 100)}%", style=BEHIND_STYLE)
+        text.append(f" · behind by {round(p.behind * 100)}%", style=warning())
     return text
 
 
@@ -75,13 +88,13 @@ def exam_words(course: Course, p: CramProgress) -> str:
 def course_block(s: CourseSummary, width: int = 30) -> RenderableType:
     c = s.course
     head = Text()
-    head.append("● ", style=c.color)
-    head.append(c.code, style=f"bold {c.color}")
+    head.append("● ", style=accent(c))
+    head.append(c.code, style=f"bold {accent(c)}")
     head.append(f"  {c.name}")
     head.append(f"   {exam_words(c, s.progress)}", style=MUTED)
 
     line = Text("  ")
-    line.append_text(timeline(s.progress, c.color, width))
+    line.append_text(timeline(s.progress, accent(c), width))
     line.append("  ")
     line.append_text(progress_words(s.progress))
 
@@ -97,10 +110,10 @@ def course_block(s: CourseSummary, width: int = 30) -> RenderableType:
 def when_text(d: Deadline, now: datetime) -> Text:
     u = urgency(d.due_at, now, d.done)
     if u is Urgency.DONE:
-        return Text("done", style=URGENCY_STYLE[u])
+        return Text("done", style=urgency_style(u))
     if u is Urgency.OVERDUE:
-        return Text(f"OVERDUE {countdown(d.due_at, now).removeprefix('overdue by ')}", style=URGENCY_STYLE[u])
-    return Text(countdown(d.due_at, now), style=URGENCY_STYLE[u])
+        return Text(f"OVERDUE {countdown(d.due_at, now).removeprefix('overdue by ')}", style=urgency_style(u))
+    return Text(countdown(d.due_at, now), style=urgency_style(u))
 
 
 def deadlines_table(deadlines: list[Deadline], dash: Dashboard) -> Table:
@@ -116,7 +129,7 @@ def deadlines_table(deadlines: list[Deadline], dash: Dashboard) -> Table:
             when_text(d, dash.now),
             f"{d.due_at:%a} {d.due_at.day:>2} {d.due_at:%b %H:%M}",
             Text(d.title, style="dim strike" if d.done else ""),
-            Text(course.code, style=course.color) if course else Text("—", style=MUTED),
+            Text(course.code, style=accent(course)) if course else Text("—", style=MUTED),
             d.kind.value,
         )
     return table
@@ -153,7 +166,7 @@ def pomodoro_line(run: PomodoroRun, dash: Dashboard, settings: PomodoroSettings)
     left = remaining(run, dash.now, settings)
     text = Text(f"Pomodoro · {run.phase.label}", style="bold")
     if run.paused:
-        text.append(" (paused)", style="yellow")
+        text.append(" (paused)", style=warning())
     if left is not None:
         mins, secs = divmod(int(left.total_seconds()), 60)
         text.append(f" · {mins:02d}:{secs:02d} left")

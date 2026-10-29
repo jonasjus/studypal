@@ -187,3 +187,45 @@ FormModal, HelpScreen {
 Footer {
     background: transparent;
 }
+
+/* ----- filter, confirm, theme picker ----- */
+
+#filter {
+    display: none;
+    dock: bottom;
+    margin: 0 1 1 1;
+    border: tall $border-blurred;
+    background: transparent;
+}
+
+#filter.-shown {
+    display: block;
+}
+
+#filter:focus {
+    border: tall $border;
+}
+
+.confirm-detail {
+    color: $foreground-muted;
+}
+
+ConfirmModal, ThemePicker {
+    align: center middle;
+    background: $background 60%;
+}
+
+#picker {
+    width: 84;
+    max-width: 95%;
+    height: auto;
+    max-height: 90%;
+    border: round $border;
+    padding: 1 2;
+    background: $surface;
+}
+
+#theme-list {
+    height: auto;
+    max-height: 20;
+}

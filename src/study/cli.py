@@ -252,6 +252,31 @@ def add_deadline(
     console.print(f"Added {d.kind.value} {d.title!r}, due {d.due_at:%a %d %b %H:%M} ({countdown(d.due_at, now)}).")
 
 
+@app.command()
+def theme(
+    name: Annotated[Optional[str], typer.Argument(help="Theme to use, e.g. gruvbox. Leave out to list them.")] = None,
+) -> None:
+    """List the dashboard's colour themes, or pick one (also: T inside the dashboard)."""
+    from . import themes
+
+    with opened() as (store, _):
+        current = store.get_setting("theme", themes.DEFAULT.name)
+        if name is None:
+            for p in themes.THEMES:
+                line = Text("● " if p.name == current else "  ", style="bold")
+                line.append(f"{p.name:<18}", style="bold" if p.name == current else "")
+                line.append(f"{p.label:<36}", style="dim")
+                for color in p.accents:
+                    line.append("■ ", style=color)
+                console.print(line)
+            return
+        key = name.strip().lower()
+        if key not in themes.BY_NAME:
+            raise StorageError(f"There's no theme called {name!r}. Run study theme to see them all.")
+        store.set_setting("theme", key)
+    console.print(f"The dashboard will use {themes.BY_NAME[key].label}.")
+
+
 # ---------- notify / export ----------
 
 @app.command()

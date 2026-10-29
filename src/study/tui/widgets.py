@@ -16,15 +16,30 @@ from ..logic.countdown import Urgency, countdown, urgency
 from ..logic.stats import days_since, format_minutes
 from ..logic.timeline import CramProgress, Phase
 from ..models import Course, Deadline, Priority, Session, Topic, TopicStatus, WeakSpot
-from ..render import MUTED, URGENCY_STYLE, exam_words, progress_words, timeline
+from .. import themes
+from ..render import MUTED, accent, exam_words, progress_words, timeline, urgency_style, warning
 
-PRIORITY_STYLE = {Priority.HIGH: "red", Priority.MED: "yellow", Priority.LOW: "dim"}
-STATUS_STYLE = {
-    TopicStatus.NOT_STARTED: ("○", "dim"),
-    TopicStatus.IN_PROGRESS: ("◐", "yellow"),
-    TopicStatus.REVIEWED: ("●", "blue"),
-    TopicStatus.CONFIDENT: ("◆", "green"),
+STATUS_GLYPH = {
+    TopicStatus.NOT_STARTED: "○",
+    TopicStatus.IN_PROGRESS: "◐",
+    TopicStatus.REVIEWED: "●",
+    TopicStatus.CONFIDENT: "◆",
 }
+
+
+def priority_style(priority: Priority) -> str:
+    p = themes.active()
+    return {Priority.HIGH: p.error, Priority.MED: p.warning, Priority.LOW: MUTED}[priority]
+
+
+def status_style(status: TopicStatus) -> str:
+    p = themes.active()
+    return {
+        TopicStatus.NOT_STARTED: MUTED,
+        TopicStatus.IN_PROGRESS: p.warning,
+        TopicStatus.REVIEWED: p.info,
+        TopicStatus.CONFIDENT: p.success,
+    }[status]
 
 
 class VimList(ListView):
@@ -68,8 +83,8 @@ class CourseRow:
         head.add_column(justify="right", style=MUTED, no_wrap=True)
         name = Text()
         name.append(f"{self.number} " if self.number else "  ", style=MUTED)
-        name.append("● ", style=c.color)
-        name.append(c.code, style=f"bold {c.color}")
+        name.append("● ", style=accent(c))
+        name.append(c.code, style=f"bold {accent(c)}")
         name.append(f"  {c.name}")
         head.add_row(name, exam_words(c, s.progress) if width >= 60 else f"{s.progress.days_left}d")
         yield head
@@ -78,12 +93,12 @@ class CourseRow:
         side = width - 4 - words.cell_len - 2
         if side >= 16:
             line = Text("  ")
-            line.append_text(timeline(s.progress, c.color, side))
+            line.append_text(timeline(s.progress, accent(c), side))
             line.append("  ")
             line.append_text(words)
             yield line
         else:
-            yield Text("  ").append_text(timeline(s.progress, c.color, max(8, width - 4)))
+            yield Text("  ").append_text(timeline(s.progress, accent(c), max(8, width - 4)))
             yield Text("  ").append_text(words)
 
         facts = [f"{len(s.topics)} topic{'s' if len(s.topics) != 1 else ''}"]
@@ -103,7 +118,7 @@ class BigTimeline:
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         width = max(20, options.max_width)
-        bar = timeline(self.p, self.course.color, width)
+        bar = timeline(self.p, accent(self.course), width)
         yield bar
         yield bar
         start = f"{self.course.cram_start:%a} {self.course.cram_start.day} {self.course.cram_start:%b}"
@@ -134,20 +149,20 @@ def deadline_row(d: Deadline, now: datetime, course: Course | None, show_course:
     grid.add_column(ratio=1, no_wrap=True, overflow="ellipsis")
     if show_course:
         grid.add_column(no_wrap=True, justify="right")
-    when = Text("OVERDUE", style=URGENCY_STYLE[u]) if u is Urgency.OVERDUE else Text(
-        countdown(d.due_at, now).removeprefix("in "), style=URGENCY_STYLE[u])
+    when = Text("OVERDUE", style=urgency_style(u)) if u is Urgency.OVERDUE else Text(
+        countdown(d.due_at, now).removeprefix("in "), style=urgency_style(u))
     title = Text(d.title, style="dim strike" if d.done else "")
     title.append(f"  {d.due_at:%a} {d.due_at.day} {d.due_at:%b %H:%M}", style=MUTED)
     cells = [when, title]
     if show_course:
-        cells.append(Text(course.code, style=course.color) if course else Text("—", style=MUTED))
+        cells.append(Text(course.code, style=accent(course)) if course else Text("—", style=MUTED))
     grid.add_row(*cells)
     return grid
 
 
 def weak_row(w: WeakSpot, now: datetime, course: Course | None, topic: Topic | None = None) -> Text:
     text = Text()
-    text.append("▲ " if w.priority is Priority.HIGH else "● ", style=PRIORITY_STYLE[w.priority])
+    text.append("▲ " if w.priority is Priority.HIGH else "● ", style=priority_style(w.priority))
     text.append(w.description, style="dim strike" if w.resolved else "")
     extra = []
     if course:
@@ -161,7 +176,7 @@ def weak_row(w: WeakSpot, now: datetime, course: Course | None, topic: Topic | N
 
 
 def topic_row(t: Topic, today: date, stale_after: int) -> Table:
-    glyph, style = STATUS_STYLE[t.status]
+    glyph, style = STATUS_GLYPH[t.status], status_style(t.status)
     grid = Table.grid(expand=True, padding=(0, 1))
     grid.add_column(width=2, no_wrap=True)
     grid.add_column(ratio=1, no_wrap=True, overflow="ellipsis")
@@ -173,12 +188,12 @@ def topic_row(t: Topic, today: date, stale_after: int) -> Table:
         studied = Text("never", style=MUTED)
     else:
         label = "today" if since == 0 else "yesterday" if since == 1 else f"{since}d ago"
-        studied = Text(f"{label} · stale", style="yellow") if since >= stale_after else Text(label, style=MUTED)
+        studied = Text(f"{label} · stale", style=warning()) if since >= stale_after else Text(label, style=MUTED)
     grid.add_row(
         Text(glyph, style=style),
         Text(t.title),
         Text(t.status.label, style=style),
-        Text("●" * t.confidence + "○" * (5 - t.confidence), style="blue"),
+        Text("●" * t.confidence + "○" * (5 - t.confidence), style=themes.active().info),
         studied,
     )
     return grid
@@ -206,7 +221,7 @@ class WeekChart:
             style = "bold" if day == self.today else MUTED if day > self.today else ""
             line = Text(f"{day:%a} ", style=style)
             length = round(mins / peak * bar_room) if mins else 0
-            line.append("█" * max(length, 1 if mins else 0), style="blue" if day <= self.today else MUTED)
+            line.append("█" * max(length, 1 if mins else 0), style=themes.active().info if day <= self.today else MUTED)
             line.append(f" {format_minutes(mins)}" if mins else (" ·" if day <= self.today else ""), style=style or MUTED)
             yield line
         yield Text(f"{format_minutes(sum(self.minutes))} this week", style="bold")
