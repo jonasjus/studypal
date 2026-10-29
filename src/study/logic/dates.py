@@ -1,8 +1,12 @@
 """Reading dates and times the way you'd type them on the command line.
 
-Dates:  2026-12-10, 12-10 (next time that date comes round), today, tomorrow,
-        +3d, +2w, -5d (five days ago), mon/monday ... sun (the next one, never today)
-Times:  optional, after a space: "fri 23:59", "2026-12-10 09:00"
+Dates are day-month-year:
+        10.12.2026, 10-12-2026, 10/12/2026, 10.12.26, 10.12 (the next 10 December),
+        today, tomorrow, +3d, +2w, -5d (five days ago), mon/monday ... sun (the next one, never today).
+        Year-first 2026-12-10 also works, since it can't be mistaken for anything else.
+Times:  optional, after a space: "fri 23:59", "10.12.2026 09:00"
+
+Dates are shown the same way: `format_date` / `format_datetime`.
 """
 
 from __future__ import annotations
@@ -12,7 +16,18 @@ from datetime import date, datetime, time, timedelta
 
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 _RELATIVE = re.compile(r"^([+-])(\d+)([dw])$")
-_MONTH_DAY = re.compile(r"^(\d{1,2})-(\d{1,2})$")
+_DAY_MONTH_YEAR = re.compile(r"^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{4}|\d{2})?)?\.?$")
+DATE_FORMAT = "%d.%m.%Y"
+
+
+def format_date(d: date) -> str:
+    """10.12.2026"""
+    return d.strftime(DATE_FORMAT)
+
+
+def format_datetime(dt: datetime) -> str:
+    """10.12.2026 09:00"""
+    return dt.strftime(f"{DATE_FORMAT} %H:%M")
 
 
 class DateParseError(ValueError):
@@ -32,18 +47,21 @@ def parse_date(text: str, today: date) -> date:
         if len(t) >= 3 and name.startswith(t):  # "fri", "friday", "frid"
             ahead = (i - today.weekday()) % 7 or 7
             return today + timedelta(days=ahead)
-    if m := _MONTH_DAY.match(t):
-        month, day = int(m.group(1)), int(m.group(2))
+    if m := _DAY_MONTH_YEAR.match(t):
+        day, month, year = int(m.group(1)), int(m.group(2)), m.group(3)
         try:
+            if year:
+                return date(int(year) + (2000 if len(year) == 2 else 0), month, day)
             candidate = date(today.year, month, day)
         except ValueError:
-            raise DateParseError(f"{text!r} isn't a real date.") from None
+            raise DateParseError(f"{text!r} isn't a real date. Dates are day.month.year, like 10.12.2026.") from None
+        # Without a year: the next time that date comes round.
         return candidate if candidate >= today else candidate.replace(year=today.year + 1)
     try:
-        return date.fromisoformat(t)
+        return date.fromisoformat(t)  # year first: 2026-12-10
     except ValueError:
         raise DateParseError(
-            f"Can't read {text!r} as a date. Try 2026-12-10, 12-10, tomorrow, fri or +3d."
+            f"Can't read {text!r} as a date. Try 10.12.2026, 10.12, tomorrow, fri or +3d."
         ) from None
 
 

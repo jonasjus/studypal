@@ -1,4 +1,7 @@
-"""Export everything as Markdown (one readable document) or CSV (one file per table)."""
+"""Export everything as Markdown (one readable document) or CSV (one file per table).
+
+Markdown shows dates day.month.year like the rest of the app. CSV keeps year-first ISO dates
+(2026-12-10), which spreadsheets and other programs read without guessing."""
 
 from __future__ import annotations
 
@@ -6,6 +9,7 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
+from .logic.dates import format_date, format_datetime
 from .logic.stats import format_minutes
 from .logic.timeline import cram_progress
 from .storage import Store
@@ -26,13 +30,13 @@ def _table(headers: list[str], rows: list[list[object]]) -> list[str]:
 def to_markdown(store: Store, now: datetime | None = None) -> str:
     now = now or datetime.now()
     topics_by_id = {t.id: t for t in store.list_topics()}
-    out = [f"# Study export, {now:%Y-%m-%d %H:%M}", ""]
+    out = [f"# Study export, {format_datetime(now)}", ""]
     for course in store.list_courses():
         topics = store.list_topics(course.id)
         p = cram_progress(course, topics, now.date())
         out += [
             f"## {course.code} · {course.name}", "",
-            f"Cram {course.cram_start} → exam {course.exam_date} · {round(p.done * 100)}% done · "
+            f"Cram {format_date(course.cram_start)} → exam {format_date(course.exam_date)} · {round(p.done * 100)}% done · "
             f"{format_minutes(store.total_minutes(course.id))} studied",
             "",
         ]
@@ -40,26 +44,26 @@ def to_markdown(store: Store, now: datetime | None = None) -> str:
             out += [course.notes, ""]
         out += ["### Topics", ""]
         out += _table(["Topic", "Status", "Confidence", "Last studied"],
-                      [[t.title, t.status.label, f"{t.confidence}/5", t.last_studied or "never"] for t in topics])
+                      [[t.title, t.status.label, f"{t.confidence}/5", format_date(t.last_studied) if t.last_studied else "never"] for t in topics])
         out += ["### Weak spots", ""]
         out += _table(["Priority", "Weak spot", "Topic", "Added", "Resolved"],
                       [[w.priority.value, w.description, topics_by_id[w.topic_id].title if w.topic_id in topics_by_id else "",
-                        f"{w.created_at:%Y-%m-%d}", f"{w.resolved_at:%Y-%m-%d}" if w.resolved_at else ""]
+                        format_date(w.created_at), format_date(w.resolved_at) if w.resolved_at else ""]
                        for w in store.list_weak_spots(course.id, include_resolved=True)])
         out += ["### Deadlines", ""]
         out += _table(["Due", "Deadline", "Type", "Done"],
-                      [[f"{d.due_at:%Y-%m-%d %H:%M}", d.title, d.kind.value, "yes" if d.done else ""]
+                      [[format_datetime(d.due_at), d.title, d.kind.value, "yes" if d.done else ""]
                        for d in store.list_deadlines(course.id, include_done=True)])
         out += ["### Sessions", ""]
         out += _table(["Started", "Minutes", "Topic", "Note"],
-                      [[f"{s.started_at:%Y-%m-%d %H:%M}", s.minutes,
+                      [[format_datetime(s.started_at), s.minutes,
                         topics_by_id[s.topic_id].title if s.topic_id in topics_by_id else "", s.note]
                        for s in store.list_sessions(course.id)])
     standalone = [d for d in store.list_deadlines(include_done=True) if d.course_id is None]
     if standalone:
         out += ["## Other deadlines", ""]
         out += _table(["Due", "Deadline", "Type", "Done"],
-                      [[f"{d.due_at:%Y-%m-%d %H:%M}", d.title, d.kind.value, "yes" if d.done else ""] for d in standalone])
+                      [[format_datetime(d.due_at), d.title, d.kind.value, "yes" if d.done else ""] for d in standalone])
     return "\n".join(out).rstrip() + "\n"
 
 

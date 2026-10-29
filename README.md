@@ -153,7 +153,7 @@ study                                   # the full-screen dashboard
 study status                            # every course with its cram timeline, plus this week's hours
 study due [--within 7] [--all]          # deadlines, soonest first; overdue flagged
 
-study add course "Machine Learning" INF301 --exam 12-10 --cram-start 11-01
+study add course "Machine Learning" INF301 --exam 10.12 --cram-start 01.11
 study add topic INF301 "Kernels and SVMs" [--status reviewed] [--confidence 3]
 study add weak INF301 "Dual form derivation" [--priority high] [--topic kernels]
 study add deadline "Problem set 4" "fri 14:00" --course INF301 [--type assignment|exam|milestone]
@@ -169,7 +169,8 @@ study notify [--dry-run]                # send deadline notifications that are d
 Courses can be named by code, name, or an unambiguous prefix of either (`inf`, `machine`).
 Topics work the same way within a course.
 
-Dates: `2026-12-10`, `12-10`, `today`, `tomorrow`, `+3d`, `+2w`, `-5d`, `fri`. Add a time with a
+Dates are day-month-year: `10.12.2026`, `10-12-2026`, `10/12/26`, `10.12` (the next 10 December),
+`today`, `tomorrow`, `+3d`, `+2w`, `-5d`, `fri`. Year-first `2026-12-10` works too. Add a time with a
 space: `"fri 14:00"`. Deadlines without a time are due at 23:59; exams at 09:00. Each course's exam
 is added as a deadline automatically and moves when you change the exam date.
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
-from ..logic.dates import DateParseError, parse_date, parse_datetime, parse_minutes
+from ..logic.dates import DateParseError, format_date, format_datetime, parse_date, parse_datetime, parse_minutes
 from ..logic.stats import format_minutes
 from ..models import COURSE_COLORS, Course, Deadline, DeadlineKind, Priority, Session, Topic, TopicStatus, WeakSpot
 from ..storage import StorageError
@@ -205,7 +205,7 @@ class CourseActions:
             title="New deadline",
             fields=[
                 Field("title", "What's due", placeholder="e.g. Problem set 4"),
-                Field("due", "Due", placeholder="fri 14:00, 2026-12-01, +3d (no time = 23:59)"),
+                Field("due", "Due", placeholder="fri 14:00, 01.12.2026, +3d (no time = 23:59)"),
                 Field("course", "Course", options=[(f"{c.code} · {c.name}", c.id) for c in courses], optional=True,
                       value=course_id if course_id is not None else ""),
                 Field("kind", "Type", value="assignment",
@@ -241,8 +241,8 @@ class CourseActions:
             fields=[
                 Field("name", "Name", placeholder="e.g. Machine Learning"),
                 Field("code", "Short code", placeholder="e.g. INF301"),
-                Field("cram_start", "Cramming starts", value="today", placeholder="today, 11-01, +3d"),
-                Field("exam", "Exam date", placeholder="2026-12-10, 12-10, +3w"),
+                Field("cram_start", "Cramming starts", value="today", placeholder="today, 01.11, +3d"),
+                Field("exam", "Exam date", placeholder="10.12.2026, 10.12, +3w"),
             ],
             check=check,
         )
@@ -320,8 +320,8 @@ class CourseActions:
             fields=[
                 Field("name", "Name", course.name),
                 Field("code", "Short code", course.code),
-                Field("cram_start", "Cramming starts", course.cram_start.isoformat()),
-                Field("exam", "Exam date", course.exam_date.isoformat()),
+                Field("cram_start", "Cramming starts", format_date(course.cram_start)),
+                Field("exam", "Exam date", format_date(course.exam_date)),
                 Field("color", "Colour", course.color, options=colors),
                 Field("notes", "Notes", course.notes, optional=True),
             ],
@@ -346,8 +346,8 @@ class CourseActions:
                 Field("title", "Topic", topic.title),
                 Field("status", "Status", topic.status.value, options=[(s.label.capitalize(), s.value) for s in TopicStatus]),
                 Field("confidence", "Confidence", str(topic.confidence), options=[(f"{n}/5", str(n)) for n in range(1, 6)]),
-                Field("last", "Last studied", topic.last_studied.isoformat() if topic.last_studied else "",
-                      placeholder="e.g. today, -3d, 2026-11-02", optional=True),
+                Field("last", "Last studied", format_date(topic.last_studied) if topic.last_studied else "",
+                      placeholder="e.g. today, -3d, 02.11.2026", optional=True),
             ],
             check=self._date_check("last", optional=("last",)),
         )
@@ -387,7 +387,7 @@ class CourseActions:
         now = datetime.now()
         fields = [
             Field("title", "What's due", deadline.title),
-            Field("due", "Due", f"{deadline.due_at:%Y-%m-%d %H:%M}", placeholder="fri 14:00, 2026-12-01 09:00"),
+            Field("due", "Due", format_datetime(deadline.due_at), placeholder="fri 14:00, 01.12.2026 09:00"),
         ]
         if not deadline.is_course_exam:  # the course's own exam stays tied to its course
             fields += [
@@ -422,7 +422,7 @@ class CourseActions:
             title="Edit session",
             fields=[
                 Field("minutes", "How long", str(session.minutes), placeholder="45, 90m or 1h30m"),
-                Field("start", "Started", f"{session.started_at:%Y-%m-%d %H:%M}"),
+                Field("start", "Started", format_datetime(session.started_at)),
                 Field("topic", "Topic", session.topic_id or "", optional=True,
                       options=[(t.title, t.id) for t in self.app.store.list_topics(session.course_id)]),
                 Field("note", "Note", session.note, optional=True),

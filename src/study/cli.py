@@ -16,7 +16,7 @@ from rich.text import Text
 from . import config as config_mod
 from . import paths
 from .config import Config, ConfigError
-from .logic.dates import DateParseError, parse_date, parse_datetime, parse_minutes
+from .logic.dates import DateParseError, format_date, parse_date, parse_datetime, parse_minutes
 from .models import COURSE_COLORS, Course, Deadline, DeadlineKind, Priority, Session, Topic, TopicStatus, WeakSpot
 from .storage import Store, StorageError
 
@@ -117,7 +117,7 @@ def status() -> None:
         dash = dashboard.build(store, cfg)
     console.print()
     if not dash.courses:
-        console.print("No courses yet. Add one with [bold]study add course \"Machine Learning\" INF301 --exam 2026-12-10[/].")
+        console.print("No courses yet. Add one with [bold]study add course \"Machine Learning\" INF301 --exam 10.12.2026[/].")
         return
     for summary in dash.courses:
         console.print(course_block(summary, width=32))
@@ -194,7 +194,7 @@ def weak(
 def add_course(
     name: Annotated[str, typer.Argument(help="Full name, e.g. 'Machine Learning'.")],
     code: Annotated[str, typer.Argument(help="Short code, e.g. INF301.")],
-    exam: Annotated[str, typer.Option("--exam", "-e", help="Exam date, e.g. 2026-12-10 or 12-10.")],
+    exam: Annotated[str, typer.Option("--exam", "-e", help="Exam date, day.month.year: 10.12.2026, or 10.12 for the next 10 December.")],
     cram_start: Annotated[str, typer.Option("--cram-start", "-s", help="When cramming starts. Default: today.")] = "today",
     color: Annotated[Optional[str], typer.Option("--color", help="Accent colour as #rrggbb. Default: the next unused one.")] = None,
     notes: Annotated[str, typer.Option("--notes", help="Anything to remember about the course.")] = "",
@@ -206,7 +206,7 @@ def add_course(
             raise StorageError(f"{color!r} isn't a colour. Use #rrggbb, e.g. {COURSE_COLORS[2]}.")
         c = store.add_course(Course(name, code, parse_date(cram_start, today), parse_date(exam, today),
                                     color or store.next_color(), notes))
-    console.print(Text.assemble("Added ", (c.code, f"bold {c.color}"), f" ({c.name}), exam on {c.exam_date:%a %d %b %Y}."))
+    console.print(Text.assemble("Added ", (c.code, f"bold {c.color}"), f" ({c.name}), exam on {c.exam_date:%a} {format_date(c.exam_date)}."))
 
 
 @add_app.command("topic")
@@ -243,7 +243,7 @@ def add_weak(
 @add_app.command("deadline")
 def add_deadline(
     title: Annotated[str, typer.Argument(help="What's due.")],
-    due_at: Annotated[str, typer.Argument(metavar="DUE", help="When, e.g. 'fri 14:00', 2026-12-01, +3d. Default time 23:59.")],
+    due_at: Annotated[str, typer.Argument(metavar="DUE", help="When, e.g. 'fri 14:00', 01.12.2026, +3d. Default time 23:59.")],
     course: Annotated[Optional[str], typer.Option("--course", "-c", help="Course it belongs to (leave out for standalone).")] = None,
     kind: Annotated[str, typer.Option("--type", help="exam, assignment or milestone.")] = "assignment",
 ) -> None:
@@ -327,7 +327,7 @@ def export(
             output.write_text(text, encoding="utf-8")
             console.print(f"Wrote {output}.")
         else:
-            folder = output or Path(f"study-export-{datetime.now():%Y-%m-%d}")
+            folder = output or Path(f"study-export-{datetime.now():%d-%m-%Y}")
             files = export_mod.to_csv(store, folder)
             console.print(f"Wrote {len(files)} CSV files to {folder}/.")
 

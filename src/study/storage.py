@@ -462,7 +462,8 @@ class Store:
         if deadline.is_course_exam and deadline.course_id is not None:
             course = self.get_course(deadline.course_id)
             if course and deadline.due_at.date() < course.cram_start:
-                raise StorageError(f"The exam can't be before {course.code}'s cram start ({course.cram_start}).")
+                raise StorageError(f"The exam can't be before {course.code}'s cram start "
+                                   f"({course.cram_start:%d.%m.%Y}).")
         with self._tx() as c:
             c.execute(
                 "update deadline set course_id = ?, title = ?, due_at = ?, kind = ?, done = ? where id = ?",
