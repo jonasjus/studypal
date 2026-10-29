@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "study"
+version = "0.1.0"
+description = "A calm, keyboard-driven terminal study tracker for exam season"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=8.2",
+    "typer>=0.27",
+    "rich>=15.0",
+    "desktop-notifier>=6.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.1"]
+
+[project.scripts]
+study = "study.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/study"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
