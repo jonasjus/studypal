@@ -533,3 +533,48 @@ def test_link_a_chapter_to_a_topic_and_fold_it(store: Store) -> None:
 
     run(store, script)
     assert store.reading_by_topic(course.id).keys() == {trees.id}
+
+
+# ---------- git sync ----------
+
+def test_pull_on_start_and_sync_key(tmp_path, store: Store) -> None:
+    import subprocess
+
+    from study import sync
+
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "--quiet", "--bare", "-b", "main", str(remote)], check=True)
+    course = store.add_course(Course("Machine Learning", "INF301", date.today(), date.today() + timedelta(days=20)))
+    sync.init(store, str(remote))  # this device; its repo sits next to its database
+
+    other = Store(tmp_path / "other" / "study.db")
+    sync.init(other, str(remote))
+    other.add_topic(Topic(other.list_courses()[0].id, "Added on the other device"))
+    sync.sync(other)
+
+    async def script(app, pilot):
+        for _ in range(100):  # the pull on start runs in a thread
+            await pilot.pause(0.05)
+            if store.list_topics(course.id):
+                break
+        assert [t.title for t in store.list_topics(course.id)] == ["Added on the other device"]
+        store.add_topic(Topic(course.id, "Added here"))
+        await pilot.press("G")
+        for _ in range(100):
+            await pilot.pause(0.05)
+            if not app.workers or all(w.is_finished for w in app.workers):
+                break
+
+    run(store, script)
+    sync.sync(other)
+    assert sorted(t.title for t in other.list_topics()) == ["Added here", "Added on the other device"]
+    other.close()
+
+
+def test_sync_key_without_setup_explains(store: Store) -> None:
+    async def script(app, pilot):
+        await pilot.press("G")
+        await pilot.pause()
+        assert any("study sync --init" in n.message for n in app._notifications)
+
+    run(store, script)

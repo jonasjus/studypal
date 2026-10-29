@@ -13,6 +13,9 @@ Example ~/.config/study/config.toml:
     long_break = "15m"
     long_break_every = 4                          # long break after every 4th focus block
 
+    [sync]
+    pull_on_start = true                          # with git sync set up (study sync --init)
+
     [study]
     week_start = "monday"
     stale_after_days = 7                          # highlight topics not studied for this long
@@ -60,6 +63,7 @@ class Config:
     stale_after_days: int = 7
     default_exam_time: time = time(9, 0)
     pomodoro: PomodoroSettings = field(default_factory=PomodoroSettings)
+    pull_on_start: bool = True
 
 
 def parse_duration(text: str) -> timedelta:
@@ -112,6 +116,13 @@ def _pomodoro(section: dict, default: PomodoroSettings) -> PomodoroSettings:
     )
 
 
+def _bool(section: dict, key: str, default: bool) -> bool:
+    value = section.get(key, default)
+    if not isinstance(value, bool):
+        raise ConfigError(f"{key} must be true or false.")
+    return value
+
+
 def from_dict(data: dict) -> Config:
     notif = data.get("notifications", {}) or {}
     study = data.get("study", {}) or {}
@@ -143,6 +154,7 @@ def from_dict(data: dict) -> Config:
         stale_after_days=stale,
         default_exam_time=parse_time(study["default_exam_time"], "study.default_exam_time") if "default_exam_time" in study else cfg.default_exam_time,
         pomodoro=_pomodoro(data.get("pomodoro", {}) or {}, cfg.pomodoro),
+        pull_on_start=_bool(data.get("sync", {}) or {}, "pull_on_start", cfg.pull_on_start),
     )
 
 

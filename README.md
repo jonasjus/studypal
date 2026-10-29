@@ -129,6 +129,7 @@ logging time or starting a Pomodoro on that course.
 | `T` | pick a colour theme | same |
 | `esc`, `[` / `]` | clear the filter | back (or clear the filter) · previous / next subject |
 | `r` | reading list of the current course | same; from a topic, at its chapter |
+| `G` | sync with git now | same |
 | `?` / `q` | help / quit | same |
 
 ## Reading list
@@ -201,6 +202,7 @@ study weak INF301 "Dual form derivation" --priority high      # shortcut for add
 
 study export --format md [-o study.md]  # one readable document (printed if no -o)
 study export --format csv [-o folder]   # one CSV per table
+study sync [--init URL] [--status]      # git sync between devices (see below)
 study notify [--dry-run]                # send deadline notifications that are due (see below)
 ```
 
@@ -332,6 +334,36 @@ week_start = "monday"
 stale_after_days = 7                          # highlight topics not studied for this long
 default_exam_time = "09:00"
 ```
+
+## Syncing between devices with git
+
+Like Obsidian Git: your data goes into a git repository you push to a private remote (GitHub,
+GitLab, your own server), and each device pulls the others' changes.
+
+```sh
+# First device: make an empty private repo on GitHub, then
+study sync --init git@github.com:YOU/study-data.git
+
+# Every other device (its existing data is merged in, not replaced)
+study sync --init git@github.com:YOU/study-data.git
+```
+
+After that:
+
+- `study` pulls and merges when it starts (turn off with `pull_on_start = false` under `[sync]`).
+- `G` in the dashboard, or `study sync`, commits your changes, pulls and merges, then pushes.
+- `study sync --no-push` pulls only; `study sync --status` shows what hasn't been synced yet.
+
+How merging works: the database itself isn't committed (git can't merge binary files). A sync writes
+your data as text, one file per table and one line per item, in `~/.local/share/study/sync/data/`,
+and merges item by item. Edits to different things on two devices both survive. If the same thing
+changed on both, the newer change wins. If one device deleted something the other edited, the edit is
+kept, and a course another device still added to comes back. A chapter added on both devices is
+combined, and two different courses with the same code get the second one renamed (`INF301-2`).
+
+Offline is fine: a sync without network commits locally and pushes next time. git uses your usual
+credentials (SSH key or credential helper) and never stops to ask for a password. A running timer or
+Pomodoro stays on the device it was started on.
 
 ## Your data
 

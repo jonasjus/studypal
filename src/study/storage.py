@@ -168,7 +168,120 @@ MIGRATIONS: list[str] = [
         unique (chapter_id, number)
     );
     """,
+    # For syncing between devices: every row gets a stable id (uid) and a last-changed time (updated_at).
+    # Triggers fill both in, so the rest of the code never has to think about them. Import sets
+    # updated_at explicitly, and the update trigger leaves an explicitly changed updated_at alone.
+    """
+    alter table course add column uid text;
+    alter table course add column updated_at text;
+    update course set uid = lower(hex(randomblob(16))), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+    create unique index course_uid on course(uid);
+    create trigger course_new after insert on course when new.uid is null or new.updated_at is null begin
+        update course set uid = coalesce(new.uid, lower(hex(randomblob(16)))),
+                       updated_at = coalesce(new.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        where rowid = new.rowid;
+    end;
+    create trigger course_changed after update on course when new.updated_at is old.updated_at begin
+        update course set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where rowid = new.rowid;
+    end;
+    alter table topic add column uid text;
+    alter table topic add column updated_at text;
+    update topic set uid = lower(hex(randomblob(16))), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+    create unique index topic_uid on topic(uid);
+    create trigger topic_new after insert on topic when new.uid is null or new.updated_at is null begin
+        update topic set uid = coalesce(new.uid, lower(hex(randomblob(16)))),
+                       updated_at = coalesce(new.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        where rowid = new.rowid;
+    end;
+    create trigger topic_changed after update on topic when new.updated_at is old.updated_at begin
+        update topic set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where rowid = new.rowid;
+    end;
+    alter table weak_spot add column uid text;
+    alter table weak_spot add column updated_at text;
+    update weak_spot set uid = lower(hex(randomblob(16))), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+    create unique index weak_spot_uid on weak_spot(uid);
+    create trigger weak_spot_new after insert on weak_spot when new.uid is null or new.updated_at is null begin
+        update weak_spot set uid = coalesce(new.uid, lower(hex(randomblob(16)))),
+                       updated_at = coalesce(new.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        where rowid = new.rowid;
+    end;
+    create trigger weak_spot_changed after update on weak_spot when new.updated_at is old.updated_at begin
+        update weak_spot set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where rowid = new.rowid;
+    end;
+    alter table deadline add column uid text;
+    alter table deadline add column updated_at text;
+    update deadline set uid = lower(hex(randomblob(16))), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+    create unique index deadline_uid on deadline(uid);
+    create trigger deadline_new after insert on deadline when new.uid is null or new.updated_at is null begin
+        update deadline set uid = coalesce(new.uid, lower(hex(randomblob(16)))),
+                       updated_at = coalesce(new.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        where rowid = new.rowid;
+    end;
+    create trigger deadline_changed after update on deadline when new.updated_at is old.updated_at begin
+        update deadline set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where rowid = new.rowid;
+    end;
+    alter table session add column uid text;
+    alter table session add column updated_at text;
+    update session set uid = lower(hex(randomblob(16))), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+    create unique index session_uid on session(uid);
+    create trigger session_new after insert on session when new.uid is null or new.updated_at is null begin
+        update session set uid = coalesce(new.uid, lower(hex(randomblob(16)))),
+                       updated_at = coalesce(new.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        where rowid = new.rowid;
+    end;
+    create trigger session_changed after update on session when new.updated_at is old.updated_at begin
+        update session set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where rowid = new.rowid;
+    end;
+    alter table source add column uid text;
+    alter table source add column updated_at text;
+    update source set uid = lower(hex(randomblob(16))), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+    create unique index source_uid on source(uid);
+    create trigger source_new after insert on source when new.uid is null or new.updated_at is null begin
+        update source set uid = coalesce(new.uid, lower(hex(randomblob(16)))),
+                       updated_at = coalesce(new.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        where rowid = new.rowid;
+    end;
+    create trigger source_changed after update on source when new.updated_at is old.updated_at begin
+        update source set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where rowid = new.rowid;
+    end;
+    alter table chapter add column uid text;
+    alter table chapter add column updated_at text;
+    update chapter set uid = lower(hex(randomblob(16))), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+    create unique index chapter_uid on chapter(uid);
+    create trigger chapter_new after insert on chapter when new.uid is null or new.updated_at is null begin
+        update chapter set uid = coalesce(new.uid, lower(hex(randomblob(16)))),
+                       updated_at = coalesce(new.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        where rowid = new.rowid;
+    end;
+    create trigger chapter_changed after update on chapter when new.updated_at is old.updated_at begin
+        update chapter set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where rowid = new.rowid;
+    end;
+    alter table section add column uid text;
+    alter table section add column updated_at text;
+    update section set uid = lower(hex(randomblob(16))), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+    create unique index section_uid on section(uid);
+    create trigger section_new after insert on section when new.uid is null or new.updated_at is null begin
+        update section set uid = coalesce(new.uid, lower(hex(randomblob(16)))),
+                       updated_at = coalesce(new.updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        where rowid = new.rowid;
+    end;
+    create trigger section_changed after update on section when new.updated_at is old.updated_at begin
+        update section set updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where rowid = new.rowid;
+    end;
+    """,
 ]
+
+
+def _statements(script: str) -> list[str]:
+    """Split a migration into statements, keeping trigger bodies (begin ... end;) whole."""
+    out, buf = [], ""
+    for piece in script.split(";"):
+        buf += piece + ";"
+        if sqlite3.complete_statement(buf):
+            if buf.strip(" \n;"):
+                out.append(buf.strip())
+            buf = ""
+    return out
 
 
 def _d(value: str | None) -> date | None:
@@ -221,13 +334,19 @@ class Store:
         else:
             self.conn.execute("commit")
 
+    @contextmanager
+    def sync_lock(self) -> Iterator[sqlite3.Connection]:
+        """Hold the database's write lock while a sync exports, merges and imports, so nothing changes
+        in between. Other writers wait (up to the busy timeout)."""
+        with self._tx() as c:
+            yield c
+
     def _migrate(self) -> None:
         version = self.conn.execute("pragma user_version").fetchone()[0]
         for i, script in enumerate(MIGRATIONS[version:], start=version + 1):
             with self._tx() as c:
-                for statement in script.split(";"):
-                    if statement.strip():
-                        c.execute(statement)
+                for statement in _statements(script):
+                    c.execute(statement)
                 c.execute(f"pragma user_version = {i}")
 
     @property

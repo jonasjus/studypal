@@ -390,6 +390,49 @@ def add_chapter(
     console.print(f"Chapter {chapter.number} of {src.title!r}: {added} new section{'s' if added != 1 else ''}.")
 
 
+# ---------- git sync ----------
+
+@app.command("sync")
+def sync_command(
+    init: Annotated[Optional[str], typer.Option("--init", metavar="URL",
+                    help="Set up syncing to this git remote (a private repo), e.g. git@github.com:you/study-data.git.")] = None,
+    local: Annotated[bool, typer.Option("--local", help="With --init: set up a local repo only, no remote yet.")] = False,
+    status_: Annotated[bool, typer.Option("--status", help="Show what's synced and what isn't.")] = False,
+    no_push: Annotated[bool, typer.Option("--no-push", help="Pull and merge, but don't push.")] = False,
+) -> None:
+    """Sync your data through git: commit local changes, pull and merge other devices', push."""
+    from . import sync
+
+    with opened() as (store, _):
+        try:
+            if status_:
+                st = sync.status(store)
+                if not st.set_up:
+                    console.print("Sync isn't set up. Run [bold]study sync --init <url of a private git repo>[/].")
+                    return
+                console.print(f"Repo     {sync.repo_dir(store)}")
+                console.print(f"Remote   {st.remote or 'none (local only)'}  ·  branch {st.branch}")
+                last = datetime.fromisoformat(st.last_sync) if st.last_sync else None
+                console.print(f"Synced   {last:%d.%m.%Y %H:%M}" if last else "Synced   never")
+                waiting = []
+                if st.unsynced_local:
+                    waiting.append("local changes not committed yet")
+                if st.ahead:
+                    waiting.append(f"{st.ahead} commit{'s' if st.ahead != 1 else ''} to push")
+                if st.behind:
+                    waiting.append(f"{st.behind} commit{'s' if st.behind != 1 else ''} to pull (as of the last fetch)")
+                console.print("Waiting  " + ("; ".join(waiting) if waiting else "nothing, all in sync"))
+                return
+            if init is not None or local:
+                result = sync.init(store, None if local else init)
+                console.print(f"Sync set up in {sync.repo_dir(store)}.")
+            else:
+                result = sync.sync(store, push=not no_push)
+        except sync.SyncError as e:
+            raise StorageError(str(e)) from None
+    console.print(result.summary())
+
+
 # ---------- notify / export ----------
 
 @app.command()

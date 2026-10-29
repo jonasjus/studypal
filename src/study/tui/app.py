@@ -14,7 +14,7 @@ from textual.screen import ModalScreen
 from textual.theme import BUILTIN_THEMES, Theme
 from textual.widgets import Static
 
-from .. import alerts, notifier, themes
+from .. import alerts, notifier, sync, themes
 from ..config import Config
 from ..logic.countdown import countdown
 from ..logic.notify import banner_groups, within
@@ -47,6 +47,7 @@ HELP = """\
   + / -        change a topic's confidence   space on a topic   next status
   /            filter the lists (esc clears) T   pick a colour theme
   r            reading list for the current course (from a topic: jumps to its chapter)
+  G            sync with git now (pull, merge, push; set up with study sync --init <url>)
   ?            this help                     q   quit
 
 [b]Reading list[/b]
@@ -110,6 +111,7 @@ class StudyApp(App):
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [
         Binding("T", "pick_theme", "Theme", show=False),
+        Binding("G", "sync", "Sync", show=False),
         Binding("q", "quit", "Quit"),
         Binding("question_mark", "help", "Help", key_display="?"),
     ]
@@ -120,6 +122,7 @@ class StudyApp(App):
         self.cfg = cfg
         self._last_phase: PomoPhase | None = None
         self._toasted: set[tuple[int, datetime]] = set()  # deadlines already toasted this session
+        self._sync_push = False
 
     def on_mount(self) -> None:
         self.register_theme(study_theme())
@@ -133,6 +136,8 @@ class StudyApp(App):
         self.set_interval(1, self.tick)
         self.set_interval(30, self.refresh_everything)
         self.set_interval(60, self.every_minute)
+        if self.cfg.pull_on_start and sync.is_set_up(sync.repo_dir(self.store)):
+            self.call_after_refresh(self.start_sync, False)
 
     # ----- shared by screens -----
 
@@ -208,6 +213,43 @@ class StudyApp(App):
         if week_minutes is not None:
             return Text(f"{format_minutes(sum(week_minutes))} this week", style="dim")
         return Text("")
+
+    # ----- git sync -----
+
+    def action_sync(self) -> None:
+        if not sync.is_set_up(sync.repo_dir(self.store)):
+            self.notify("Sync isn't set up yet. In a terminal: study sync --init <url of a private git repo>.",
+                        severity="warning", timeout=10)
+            return
+        self.notify("Syncing…", timeout=3)
+        self.start_sync(True)
+
+    def start_sync(self, push: bool) -> None:
+        """Runs in a thread with its own connection; the network part doesn't hold up the screen."""
+        path, cfg = self.store.path, self.cfg
+
+        def work() -> sync.SyncResult:
+            with Store(path, exam_time=cfg.default_exam_time) as store:
+                return sync.sync(store, push=push)
+
+        self._sync_push = push
+        self.run_worker(work, thread=True, exclusive=True, group="sync", name="sync")
+
+    def on_worker_state_changed(self, event) -> None:
+        from textual.worker import WorkerState
+
+        if event.worker.name != "sync":
+            return
+        if event.state is WorkerState.SUCCESS:
+            result: sync.SyncResult = event.worker.result
+            if result.pulled:
+                self.refresh_everything()
+            # The pull on start only speaks up when something came in or the remote couldn't be reached.
+            if self._sync_push or result.pulled or result.offline:
+                self.notify(result.summary(), title="Sync", severity="warning" if result.offline else "information",
+                            timeout=10)
+        elif event.state is WorkerState.ERROR:
+            self.notify(str(event.worker.error), title="Sync failed", severity="error", timeout=12)
 
     # ----- deadline warnings -----
 
