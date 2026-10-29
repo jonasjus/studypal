@@ -250,3 +250,13 @@ def test_merge3_rules() -> None:
     # A deletion on one side with no edit on the other wins.
     merged, _ = merge3(base, {"course": {}}, base)
     assert merged["course"] == {}
+
+
+def test_git_errors_say_what_went_wrong() -> None:
+    denied = ("git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\n"
+              "Please make sure you have the correct access rights\nand the repository exists.\n")
+    text = sync.explain(denied)
+    assert text.startswith("Permission denied (publickey). Could not read from remote repository")
+    assert "core.sshCommand" in text and "and the repository exists" not in text
+    missing = "ERROR: Repository not found.\nfatal: Could not read from remote repository.\n"
+    assert sync.explain(missing).startswith("Repository not found. Could not read from remote repository. Check the URL")

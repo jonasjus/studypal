@@ -362,7 +362,14 @@ kept, and a course another device still added to comes back. A chapter added on 
 combined, and two different courses with the same code get the second one renamed (`INF301-2`).
 
 Offline is fine: a sync without network commits locally and pushes next time. git uses your usual
-credentials (SSH key or credential helper) and never stops to ask for a password. A running timer or
+credentials (SSH key or credential helper) and never stops to ask for a password.
+
+If you choose SSH keys per folder (`includeIf "gitdir:..."` in `~/.gitconfig`), note the sync repo
+lives in `~/.local/share/study/sync`, outside your project folders. Give it the right key once:
+
+```sh
+git -C ~/.local/share/study/sync config core.sshCommand "ssh -i ~/.ssh/YOUR_KEY"
+``` A running timer or
 Pomodoro stays on the device it was started on.
 
 ## Your data

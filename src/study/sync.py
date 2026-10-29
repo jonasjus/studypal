@@ -197,6 +197,22 @@ def read_dataset_at(git: Git, commit: str | None) -> Dataset:
 
 # ---------- git ----------
 
+def explain(output: str) -> str:
+    """git's reason for failing, without the boilerplate, plus a hint for the common cases."""
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    useful = [line.removeprefix("fatal: ").removeprefix("error: ").removeprefix("ERROR: ").rstrip(".")
+              for line in lines
+              if line.startswith(("fatal:", "error:", "ERROR:")) or "Permission denied" in line]
+    text = (". ".join(dict.fromkeys(useful)) or (lines[-1] if lines else "no details")).replace("git@github.com: ", "")
+    if "Permission denied (publickey)" in output:
+        text += (". GitHub didn't accept the SSH key git used here. If you pick keys per folder (includeIf in "
+                 "~/.gitconfig), the sync repo is outside those folders; set its key with: git -C <sync folder> "
+                 "config core.sshCommand \"ssh -i ~/.ssh/<your key>\"")
+    elif "Repository not found" in output or "repository not found" in output:
+        text += ". Check the URL, that the repo exists on GitHub, and that your key's account can see it"
+    return text
+
+
 class Git:
     def __init__(self, repo: Path) -> None:
         self.repo = repo
@@ -212,8 +228,7 @@ class Git:
         if done.returncode != 0:
             if not check:
                 return None
-            message = (done.stderr or done.stdout).strip().splitlines()
-            raise SyncError(f"git {args[0]} failed: {message[-1] if message else 'no details'}")
+            raise SyncError(f"git {args[0]} failed: {explain(done.stderr or done.stdout)}")
         return done.stdout
 
     def commit(self, message: str) -> None:
