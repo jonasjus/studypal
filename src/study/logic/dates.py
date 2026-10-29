@@ -58,3 +58,14 @@ def parse_datetime(text: str, now: datetime, default_time: time) -> datetime:
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", text.strip()):
         return datetime.fromisoformat(text.strip())
     return datetime.combine(parse_date(text, now.date()), default_time)
+
+
+def parse_minutes(text: str) -> int:
+    """'90', '90m', '1h30m', '1h 30m', '2h' -> minutes."""
+    t = text.strip().lower().replace(" ", "")
+    if t.isdigit():
+        return int(t)
+    m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m(?:in)?)?", t)
+    if not m or not (m.group(1) or m.group(2)):
+        raise DateParseError(f"Can't read {text!r} as a length of time. Use minutes, like 90, or 1h30m.")
+    return int(m.group(1) or 0) * 60 + int(m.group(2) or 0)

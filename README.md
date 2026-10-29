@@ -26,6 +26,30 @@ Your data lives in `~/.local/share/study/study.db` and settings in `~/.config/st
 (both follow `XDG_DATA_HOME` / `XDG_CONFIG_HOME`). Every change is written straight away; there's
 no save step.
 
+## The dashboard
+
+Run `study` on its own. The overview shows every subject with its cram timeline, upcoming
+deadlines (red under 48 hours, yellow under a week, overdue flagged), open weak spots, and this
+week's study time per day.
+
+Keys act on the course you're looking at: the highlighted subject, or the course of the
+highlighted deadline or weak spot. So you can go straight from "Problem set 4 is due tomorrow" to
+logging time or starting a Pomodoro on that course.
+
+| Key | Overview | Subject |
+|---|---|---|
+| `enter` / `1`–`9` | open the subject (or the deadline's / weak spot's course) | |
+| `tab`, `j` / `k`, arrows | move between and within panes | same |
+| `a` | add a course, deadline or weak spot (depends on the pane) | add a topic, weak spot, deadline, or log time |
+| `t` | add a topic to the current course | |
+| `l` | log study time on the current course | same, for the highlighted topic |
+| `w` | note a weak spot | same |
+| `s` | start the timer; `s` again stops and logs it | same, on the highlighted topic |
+| `p` / `n` / `P` | Pomodoro: start, pause/resume · next block · stop and log | same |
+| `space` | mark a deadline done / resolve a weak spot | same |
+| `esc`, `[` / `]` | | back · previous / next subject |
+| `?` / `q` | help / quit | same |
+
 ## Commands
 
 ```sh

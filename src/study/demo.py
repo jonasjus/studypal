@@ -56,7 +56,7 @@ def seed(store: Store, now: datetime | None = None) -> None:
     now = (now or datetime.now()).replace(second=0, microsecond=0)
     today = now.date()
     topic_ids: dict[tuple[str, str], int] = {}
-    started: set[tuple[str, str]] = set()  # sessions only go to topics already under way
+    started: set[tuple[str, str]] = set()  # sessions go to topics studied in the last week, so older ones stay stale
     courses: dict[str, Course] = {}
 
     for code, name, start, exam, topics in COURSES:
@@ -67,7 +67,7 @@ def seed(store: Store, now: datetime | None = None) -> None:
             t = store.add_topic(Topic(course.id, title, status, confidence,
                                       today - timedelta(days=ago) if ago is not None else None))
             topic_ids[(code, title)] = t.id
-            if status is not NS:
+            if ago is not None and ago < 7:
                 started.add((code, title))
 
     for code, topic, text, priority, ago in WEAK:

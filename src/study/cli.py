@@ -16,7 +16,7 @@ from rich.text import Text
 from . import config as config_mod
 from . import paths
 from .config import Config, ConfigError
-from .logic.dates import DateParseError, parse_date, parse_datetime
+from .logic.dates import DateParseError, parse_date, parse_datetime, parse_minutes
 from .models import COURSE_COLORS, Course, Deadline, DeadlineKind, Priority, Session, Topic, TopicStatus, WeakSpot
 from .storage import Store, StorageError
 
@@ -65,17 +65,6 @@ def opened() -> Iterator[tuple[Store, Config]]:
         fail(str(e))
     finally:
         store.close()
-
-
-def parse_minutes(text: str) -> int:
-    """'90', '90m', '1h30m', '1h 30m', '2h' -> minutes."""
-    t = text.strip().lower().replace(" ", "")
-    if t.isdigit():
-        return int(t)
-    m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m(?:in)?)?", t)
-    if not m or not (m.group(1) or m.group(2)):
-        raise StorageError(f"Can't read {text!r} as a length of time. Use minutes, like 90, or 1h30m.")
-    return int(m.group(1) or 0) * 60 + int(m.group(2) or 0)
 
 
 def choice(enum_type, value: str, what: str):

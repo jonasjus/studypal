@@ -1,0 +1,189 @@
+/* Calm and minimal: no backgrounds of our own (the theme uses the terminal's), muted borders that
+   light up on the focused pane, and generous padding. Course colours come from the data. */
+
+Screen {
+    layout: vertical;
+}
+
+#topbar {
+    height: 1;
+    padding: 0 2;
+    margin-bottom: 1;
+}
+
+.pane {
+    border: round $border-blurred;
+    border-title-color: $foreground-muted;
+    border-subtitle-color: $foreground-muted;
+    padding: 0 1;
+    background: transparent;
+}
+
+.pane:focus, .pane:focus-within {
+    border: round $border;
+    border-title-color: $foreground;
+    border-title-style: bold;
+}
+
+/* ----- overview ----- */
+
+#overview {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#left {
+    width: 3fr;
+    margin-right: 1;
+}
+
+#right {
+    width: 2fr;
+    min-width: 40;
+}
+
+#courses {
+    height: 1fr;
+}
+
+#deadlines {
+    height: 2fr;
+    min-height: 6;
+}
+
+#weak {
+    height: 1fr;
+    min-height: 5;
+}
+
+#week {
+    height: auto;
+    padding: 0 1;
+}
+
+/* ----- lists ----- */
+
+ListView {
+    background: transparent;
+}
+
+ListView > ListItem {
+    background: transparent;
+    padding: 0 1;
+    border-left: blank;
+}
+
+#courses > ListItem {
+    padding: 1 1 1 0;
+}
+
+/* The highlighted row gets a bar in the margin rather than a fill, so its colours stay readable. */
+ListView > ListItem.-highlight {
+    background: transparent;
+    color: $foreground;
+    border-left: tall $border-blurred;
+}
+
+ListView:focus > ListItem.-highlight {
+    background: transparent;
+    color: $foreground;
+    border-left: tall $border;
+}
+
+/* ----- subject ----- */
+
+#subject-head {
+    height: auto;
+    padding: 0 2;
+}
+
+#big-timeline {
+    height: auto;
+    margin: 1 1 0 1;
+    padding: 0 2;
+}
+
+#subject {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#topics {
+    width: 3fr;
+    height: 1fr;
+    margin-right: 1;
+}
+
+#subject-side {
+    width: 2fr;
+    min-width: 40;
+}
+
+#s-weak, #s-deadlines {
+    height: 1fr;
+    min-height: 5;
+}
+
+#sessions {
+    height: 2fr;
+    min-height: 6;
+}
+
+/* ----- small forms and help ----- */
+
+FormModal, HelpScreen {
+    align: center middle;
+    background: $background 60%;
+}
+
+#form, #help {
+    width: 64;
+    max-width: 90%;
+    height: auto;
+    border: round $border;
+    padding: 1 2;
+    background: $surface;
+}
+
+#help {
+    width: 92;
+}
+
+#form-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.form-label {
+    color: $foreground-muted;
+    margin-top: 1;
+}
+
+#form Input, #form Select {
+    width: 100%;
+}
+
+#form Input {
+    border: tall $border-blurred;
+    background: transparent;
+    padding: 0 1;
+}
+
+#form Input:focus {
+    border: tall $border;
+}
+
+#form-error {
+    color: $error;
+    height: auto;
+    margin-top: 1;
+}
+
+#form-hint {
+    color: $foreground-muted;
+    margin-top: 1;
+}
+
+Footer {
+    background: transparent;
+}

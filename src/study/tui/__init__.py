@@ -1,12 +1,21 @@
-"""The full-screen TUI (arrives in stage 3). Until then, `study` shows the status summary."""
+"""The full-screen TUI: `study` with no arguments."""
 
 from __future__ import annotations
 
 
 def run_tui() -> None:
-    from rich.console import Console
+    from .. import config, paths
+    from ..config import ConfigError
+    from ..storage import Store
 
-    from ..cli import status
+    try:
+        cfg = config.load()
+    except ConfigError as e:
+        raise SystemExit(f"Problem in {paths.config_path()}: {e}") from None
+    store = Store(paths.db_path(), exam_time=cfg.default_exam_time)
+    try:
+        from .app import StudyApp
 
-    status()
-    Console(stderr=True).print("[dim]The full-screen dashboard arrives in stage 3; this is `study status` for now.[/]")
+        StudyApp(store, cfg).run()
+    finally:
+        store.close()
