@@ -111,3 +111,32 @@ def test_works_with_storage_deduplication(store: Store) -> None:
     for a in first:
         store.mark_sent(a.deadline.id, list(a.covers), a.deadline.due_at, now)
     assert pending_alerts(store.list_deadlines(), now, DEFAULT_THRESHOLDS, MORNING, store.sent_keys()) == []
+
+
+def test_banner_groups_overdue_and_next_24_hours() -> None:
+    from study.logic.notify import banner_groups
+
+    now = datetime(2026, 12, 1, 12, 0)
+    late = Deadline("Late", now - timedelta(hours=3), id=1)
+    soon = Deadline("Soon", now + timedelta(hours=23), id=2)
+    edge = Deadline("Edge", now + timedelta(hours=24), id=3)
+    later = Deadline("Later", now + timedelta(hours=25), id=4)
+    done = Deadline("Done", now - timedelta(hours=1), done=True, id=5)
+    overdue, within_day = banner_groups([later, edge, soon, late, done], now)
+    assert [d.id for d in overdue] == [1]
+    assert [d.id for d in within_day] == [2, 3]
+
+
+def test_send_due_records_only_what_was_shown(store: Store) -> None:
+    from study import alerts
+    from study.config import default_config
+
+    course = store.add_course(Course("Machine Learning", "ML101", DUE.date() - timedelta(days=30), DUE.date()))
+    store.add_deadline(Deadline("Problem set", DUE - timedelta(hours=5), course_id=course.id))
+    now = DUE - timedelta(hours=20)
+    failed = alerts.send_due(store, default_config(), now, send=lambda title, body: False)
+    assert len(failed.failed) == 2 and failed.sent == [] and store.sent_keys() == set()
+    shown: list[str] = []
+    ok = alerts.send_due(store, default_config(), now, send=lambda title, body: shown.append(title) or True)
+    assert len(ok.sent) == 2 and len(shown) == 2
+    assert alerts.send_due(store, default_config(), now, send=lambda t, b: shown.append(t) or True).sent == []

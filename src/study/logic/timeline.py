@@ -42,8 +42,9 @@ class CramProgress:
 
     @property
     def behind(self) -> float:
-        """How far the done fill trails today's marker, 0–1. Zero once the exam is over."""
-        if self.phase is Phase.AFTER:
+        """How far the done fill trails today's marker, 0–1. Zero once the exam is over, and while a
+        course has no topics yet (there's nothing to be behind on)."""
+        if self.phase is Phase.AFTER or self.topic_count == 0:
             return 0.0
         return max(0.0, self.elapsed - self.done)
 
@@ -94,7 +95,7 @@ def timeline_cells(progress: CramProgress, width: int) -> tuple[list[Cell], int]
     done_n = round(progress.done * width)
     today_n = round(progress.elapsed * width)
     cells = [
-        Cell.DONE if i < done_n else Cell.BEHIND if i < today_n and progress.phase is not Phase.AFTER else Cell.TODO
+        Cell.DONE if i < done_n else Cell.BEHIND if i < today_n and progress.behind > 0 else Cell.TODO
         for i in range(width)
     ]
     marker = min(width - 1, max(0, round(progress.elapsed * (width - 1))))

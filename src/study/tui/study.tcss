@@ -11,6 +11,14 @@ Screen {
     margin-bottom: 1;
 }
 
+/* Overdue / due within 24 hours: stays until dealt with. */
+#banner {
+    height: auto;
+    margin: 0 1 1 1;
+    padding: 0 1;
+    border-left: thick $error;
+}
+
 .pane {
     border: round $border-blurred;
     border-title-color: $foreground-muted;
@@ -228,4 +236,10 @@ ConfirmModal, ThemePicker {
 #theme-list {
     height: auto;
     max-height: 20;
+}
+
+/* One line per session; long notes end in an ellipsis. */
+#sessions Static {
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
 }

@@ -6,8 +6,8 @@ cram timeline per course.
 
 ```
 ● INF301  Machine Learning   exam in 12 days · Tue 10 Nov
-  ━━━━━━━━━━━━━━━━━━━━━━━━╍╍╍╍╍╍╍╍┃────────────────────  38% done · 62% of cram time used · behind by 25%
-  8 topics · 2 weak spots · 5h 15m this week
+  ━━━━━━━━━━━━━━━━━━━━╍╍╍╍╍╍╍╍╍╍╍╍┃────────────────────  38% done · 62% of cram time used · behind by 25%
+  8 topics · 3 stale · 2 weak spots · 5h 15m this week
 ```
 
 The line runs from the day cramming starts to the exam. `┃` is today; the solid part is how much
@@ -28,9 +28,85 @@ no save step.
 
 ## The dashboard
 
-Run `study` on its own. The overview shows every subject with its cram timeline, upcoming
-deadlines (red under 48 hours, yellow under a week, overdue flagged), open weak spots, and this
-week's study time per day.
+Run `study` on its own (here with `--demo` data):
+
+```
+  study  Thursday 29 October                                                               11h 15m this week
+ █ ▲ 1 overdue: Pipeline project report (DAT255) overdue by 20h 23m
+ ╭─ Subjects ──────────────────────────────────────────────────╮ ╭─ Upcoming deadlines ───────────────────╮
+ │ ▊                                                           │ │ ▊ OVERDUE   Pipeline project … DAT255  │
+ │ ▊1 ● DAT255  Data Engineering                           2d  │ │   1d 5h     Problem set 4      INF301  │
+ │ ▊  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╍╍╍╍╍╍╍╍╍╍╍╍╍┃────    │ │   1d 14h    DAT255 exam        DAT255  │
+ │ ▊  67% done · 93% of cram time used · behind by 26%         │ │   5d 2h     Mandatory assignm… STK310  │
+ │ ▊  6 topics · 1 weak spot · 3h 15m this week                │ │   11d 14h   INF301 exam        INF301  │
+ │ ▊                                                           │ │   14d 23h   Thesis outline to supe… —  │
+ │                                                             │ │   23d 14h   STK310 exam        STK310  │
+ │  2 ● INF301  Machine Learning                          12d  │ │   39d 14h   INF395 exam        INF395  │
+ │    ━━━━━━━━━━━━━━━━━━━━╍╍╍╍╍╍╍╍╍╍╍╍┃────────────────────    │ │                                        │
+ │    38% done · 62% of cram time used · behind by 25%         │ │                                        │
+ │    8 topics · 3 stale · 2 weak spots · 5h 15m this week     │ ╰─────────────────────────────── 8 open ─╯
+ │                                                             │ ╭─ Weak spots ───────────────────────────╮
+ │                                                             │ │ ▊ ▲ Can't derive the dual form of      │
+ │  3 ● STK310  Statistical Inference                     24d  │ │ ▊ the SVM without notes  INF301 ·      │
+ │    ━━━━━┃━━━━━━━──────  67% done · 29% of cram time used    │ │ ▊ 6d                                ▅▅ │
+ │    6 topics · 2 weak spots · 2h 45m this week               │ │   ▲ Factorisation theorem proofs       │
+ │                                                             │ │   STK310 · 2d                          │
+ │                                                             │ ╰─────────────────────────────── 5 open ─╯
+ │  4 ● INF395  Deep Learning                             40d  │ ╭─ This week ────────────────────────────╮
+ │    ────────────────  0% done · cramming starts in 3 days    │ │ Mon ████████████████████████ 4h        │
+ │    3 topics · 0m this week                                  │ │ Tue ████████████ 1h 55m                │
+ │                                                             │ │ Wed █████████████████ 2h 50m           │
+ │                                                             │ │ Thu ███████████████ 2h 30m             │
+ │                                                             │ │ Fri                                    │
+ │                                                             │ │ Sat                                    │
+ │                                                             │ │ Sun                                    │
+ │                                                             │ │ 11h 15m this week                      │
+ ╰─────────────────────────────────────────────────────────────╯ ╰────────────────────────────────────────╯
+ a Add  l Log  w Weak spot  s Timer  p Pomodoro  e Edit  d Delete  / Filter  q Quit  ? Help
+```
+
+The overview shows every subject with its cram timeline, upcoming deadlines (red under 48 hours,
+yellow under a week, overdue flagged), open weak spots, and this week's study time per day.
+`enter` or a number opens a subject:
+
+```
+  study  Thursday 29 October
+ █ ▲ 1 overdue: Pipeline project report (DAT255) overdue by 20h 23m
+  ● INF301  Machine Learning                                                    exam in 12 days · Tue 10 Nov
+ ╭─ Cram timeline ──────────────────────────────────────────────────────────────────────────────────────────╮
+ │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┃──────────────────────────────────────  │
+ │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┃──────────────────────────────────────  │
+ │  Fri 9 Oct                                                      ▲ today                 exam Tue 10 Nov  │
+ │                                                                                                          │
+ │  38% done · 62% of cram time used · behind by 25%                                                        │
+ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ╭─ Topics · 3/8 done ─────────────────────────────────────────╮ ╭─ Weak spots ───────────────────────────╮
+ │ ▊ ◆  Linear models    confident    ●●●●●    9d ago · stale  │ │ ▊ ▲ Can't derive the dual form of      │
+ │   ●  Regularisation   reviewed     ●●●●○    8d ago · stale  │ │ ▊ the SVM without notes  Kernels    ▄▄ │
+ │   ◐  Kernels and SVMs in progress  ●●○○○         yesterday  │ │ ▊ and SVMs · 6d                        │
+ │   ◐  Trees and boost… in progress  ●●●○○             today  │ ╰────────────────────────────────────────╯
+ │   ○  Probabilistic m… not started  ●○○○○             never  │ ╭─ Deadlines ────────────────────────────╮
+ │   ●  Model selection  reviewed     ●●●○○   11d ago · stale  │ │ ▊ 1d 5h     Problem set 4              │
+ │   ○  Neural networks  not started  ●○○○○             never  │ │   11d 14h   INF301 exam                │
+ │   ○  Unsupervised le… not started  ●○○○○             never  │ │                                        │
+ │                                                             │ ╰────────────────────────────────────────╯
+ │                                                             │ ╭─ Recent sessions ──────────────────────╮
+ │                                                             │ │ ▊ Thu 29 Oct 12:15       1h  Trees…    │
+ │                                                             │ │   Wed 28 Oct 15:15      55m  Trees…    │
+ │                                                             │ │   Wed 28 Oct 09:15    1h 5m  Trees…    │
+ │                                                             │ │   Tue 27 Oct 12:15       1h  Trees… ▁▁ │
+ │                                                             │ │   Mon 26 Oct 12:15   1h 15m  Kerne…    │
+ │                                                             │ │   Sun 25 Oct 09:15       1h  Kerne…    │
+ │                                                             │ │   Sat 24 Oct 12:15      55m  Kerne…    │
+ │                                                             │ │   Fri 23 Oct 12:15   1h 10m  Trees…    │
+ ╰─────────────────────────────────────────────────────────────╯ ╰───── 5h 15m this week · 17h 50m total ─╯
+ esc Back  [ ] Prev/next  a Add  l Log  s Timer  p Pomodoro  e Edit  d Delete  / Filter  q Quit  ? Help
+```
+
+Anything overdue or due within 24 hours stays in a banner at the top until it's done. On launch,
+and whenever another deadline comes within the warning window (2 days by default), a toast lists
+what's coming up. While the dashboard is open it also sends the same desktop alerts as
+`study notify`, so you get them even without the scheduled job; they're never sent twice.
 
 Keys act on the course you're looking at: the highlighted subject, or the course of the
 highlighted deadline or weak spot. So you can go straight from "Problem set 4 is due tomorrow" to
@@ -51,7 +127,7 @@ logging time or starting a Pomodoro on that course.
 | `+` / `-` | | change the highlighted topic's confidence |
 | `/` | filter every pane by text (`esc` clears) | same |
 | `T` | pick a colour theme | same |
-| `esc`, `[` / `]` | | back · previous / next subject |
+| `esc`, `[` / `]` | clear the filter | back (or clear the filter) · previous / next subject |
 | `?` / `q` | help / quit | same |
 
 ## Themes
@@ -217,6 +293,12 @@ week_start = "monday"
 stale_after_days = 7                          # highlight topics not studied for this long
 default_exam_time = "09:00"
 ```
+
+## Your data
+
+Everything is in one SQLite file (`study --version` shows where). Back it up by copying that file,
+or keep a readable copy with `study export --format md -o study-backup.md`. To start over, move the
+file away; `study` creates a fresh one.
 
 ## Development
 

@@ -142,17 +142,29 @@ class BigTimeline:
 
 # ---------- deadlines, weak spots, topics, sessions ----------
 
-def deadline_row(d: Deadline, now: datetime, course: Course | None, show_course: bool = True) -> Table:
+class DeadlineRow:
+    """Countdown, title, due date and course; the date is left out when the pane is narrow."""
+
+    def __init__(self, d: Deadline, now: datetime, course: Course | None, show_course: bool = True) -> None:
+        self.args = (d, now, course, show_course)
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        yield deadline_row(*self.args, show_date=options.max_width >= 64)
+
+
+def deadline_row(d: Deadline, now: datetime, course: Course | None, show_course: bool = True,
+                 show_date: bool = True) -> Table:
     u = urgency(d.due_at, now, d.done)
     grid = Table.grid(expand=True, padding=(0, 1))
-    grid.add_column(width=12, no_wrap=True)
+    grid.add_column(width=9 if not show_date else 12, no_wrap=True)
     grid.add_column(ratio=1, no_wrap=True, overflow="ellipsis")
     if show_course:
         grid.add_column(no_wrap=True, justify="right")
     when = Text("OVERDUE", style=urgency_style(u)) if u is Urgency.OVERDUE else Text(
         countdown(d.due_at, now).removeprefix("in "), style=urgency_style(u))
     title = Text(d.title, style="dim strike" if d.done else "")
-    title.append(f"  {d.due_at:%a} {d.due_at.day} {d.due_at:%b %H:%M}", style=MUTED)
+    if show_date:
+        title.append(f"  {d.due_at:%a} {d.due_at.day} {d.due_at:%b %H:%M}", style=MUTED)
     cells = [when, title]
     if show_course:
         cells.append(Text(course.code, style=accent(course)) if course else Text("—", style=MUTED))
@@ -200,7 +212,8 @@ def topic_row(t: Topic, today: date, stale_after: int) -> Table:
 
 
 def session_row(s: Session, topic: Topic | None) -> Text:
-    text = Text(f"{s.started_at:%a} {s.started_at.day:>2} {s.started_at:%b %H:%M}  ", style=MUTED)
+    text = Text(f"{s.started_at:%a} {s.started_at.day:>2} {s.started_at:%b %H:%M}  ", style=MUTED,
+                no_wrap=True, overflow="ellipsis")
     text.append(f"{format_minutes(s.minutes):>7}", style="bold")
     bits = [b for b in (topic.title if topic else "", s.note) if b]
     if bits:

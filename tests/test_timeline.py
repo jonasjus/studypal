@@ -82,3 +82,10 @@ def test_marker_stays_inside_the_bar() -> None:
     _, end_marker = timeline_cells(cram_progress(COURSE, [], date(2026, 12, 20)), 10)
     assert (start_marker, end_marker) == (0, 9)
     assert timeline_cells(cram_progress(COURSE, [], date(2026, 11, 16)), 0) == ([], 0)
+
+
+def test_a_course_without_topics_is_never_behind() -> None:
+    p = cram_progress(COURSE, [], date(2026, 11, 20))
+    assert not p.is_behind
+    cells, _ = timeline_cells(p, 20)
+    assert Cell.BEHIND not in cells

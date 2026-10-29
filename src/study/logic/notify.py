@@ -78,6 +78,14 @@ def pending_alerts(
     return sorted(alerts, key=lambda a: a.deadline.due_at)
 
 
+def banner_groups(deadlines: Iterable[Deadline], now: datetime) -> tuple[list[Deadline], list[Deadline]]:
+    """(overdue, due within 24 hours): what the TUI keeps in its banner. Done deadlines are left out."""
+    open_ = [d for d in deadlines if not d.done]
+    overdue = sorted((d for d in open_ if d.due_at <= now), key=lambda d: d.due_at)
+    soon = sorted((d for d in open_ if now < d.due_at <= now + timedelta(hours=24)), key=lambda d: d.due_at)
+    return overdue, soon
+
+
 def within(deadlines: Iterable[Deadline], now: datetime, window: timedelta) -> list[Deadline]:
     """Open deadlines that are overdue or due within `window` (for in-app toasts and banners)."""
     return [d for d in deadlines if not d.done and d.due_at - now < window]

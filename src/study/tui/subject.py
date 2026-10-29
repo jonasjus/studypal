@@ -19,14 +19,14 @@ from ..logic.timeline import cram_progress
 from ..models import Deadline, Topic, WeakSpot
 from ..render import MUTED, accent, exam_words
 from .actions import CourseActions, matches
-from .widgets import BigTimeline, Row, VimList, deadline_row, empty_row, session_row, topic_row, weak_row
+from .widgets import BigTimeline, Row, VimList, DeadlineRow, empty_row, session_row, topic_row, weak_row
 
 
 class SubjectScreen(CourseActions, Screen):
     BINDINGS = [
         Binding("escape", "back", "Back"),
-        Binding("left_square_bracket", "step(-1)", "Prev", key_display="["),
-        Binding("right_square_bracket", "step(1)", "Next", key_display="]"),
+        Binding("left_square_bracket", "step(-1)", "Prev/next", key_display="[ ]"),
+        Binding("right_square_bracket", "step(1)", "Next subject", show=False),
         Binding("a", "add", "Add"),
         Binding("l", "quick_log", "Log"),
         Binding("w", "add_weak", "Weak spot", show=False),
@@ -51,6 +51,7 @@ class SubjectScreen(CourseActions, Screen):
 
     def compose(self) -> ComposeResult:
         yield Static(id="topbar")
+        yield Static(id="banner")
         yield Static(id="subject-head")
         yield Static(id="big-timeline", classes="pane")
         with Horizontal(id="subject"):
@@ -118,7 +119,7 @@ class SubjectScreen(CourseActions, Screen):
 
         deadlines = store.list_deadlines(course.id)
         await self._fill("#s-deadlines", [
-            Row(deadline_row(d, now, None, show_course=False), d) for d in deadlines
+            Row(DeadlineRow(d, now, None, show_course=False), d) for d in deadlines
             if matches(q, d.title, d.kind.value)
         ] or [empty_row(none or "Nothing due.")])
 
@@ -144,6 +145,7 @@ class SubjectScreen(CourseActions, Screen):
     def update_topbar(self) -> None:
         for bar in self.query("#topbar").results(Static):  # nothing to update until the screen is built
             bar.update(self.app.topbar())
+        self.app.show_banner(self)
 
     # ----- what the keys act on -----
 

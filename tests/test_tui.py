@@ -367,3 +367,57 @@ def test_saved_theme_is_used_on_start(store: Store) -> None:
 
     run(store, script)
     themes.set_active(themes.DEFAULT)
+
+
+# ---------- stage 5: in-app deadline warnings ----------
+
+def test_banner_shows_overdue_and_due_within_a_day(store: Store) -> None:
+    from datetime import datetime
+
+    from study.models import Deadline
+
+    now = datetime.now()
+    store.add_deadline(Deadline("Old report", now - timedelta(hours=3)))
+    store.add_deadline(Deadline("Problem set", now + timedelta(hours=5)))
+
+    async def script(app, pilot):
+        await pilot.pause()
+        banner = app.screen.query_one("#banner")
+        text = str(banner.render())
+        assert banner.display and "1 overdue: Old report" in text and "Due within 24 hours: Problem set" in text
+
+    run(store, script)
+
+
+def test_no_banner_when_nothing_is_urgent(store: Store) -> None:
+    async def script(app, pilot):
+        await pilot.pause()
+        assert not app.screen.query_one("#banner").display
+
+    run(store, script)
+
+
+def test_toasts_on_launch_then_only_for_new_deadlines(store: Store) -> None:
+    from datetime import datetime
+
+    from study.models import Deadline
+
+    now = datetime.now()
+    store.add_deadline(Deadline("Problem set", now + timedelta(hours=30)))
+    store.add_deadline(Deadline("Far away", now + timedelta(days=9)))
+
+    async def script(app, pilot):
+        await pilot.pause()
+        [launch] = list(app._notifications)
+        assert launch.title == "Coming up" and "Problem set" in launch.message and "Far away" not in launch.message
+        app.every_minute()
+        await pilot.pause()  # notify() posts a message; the toast exists once it's handled
+        assert len(app._notifications) == 1  # nothing new, no new toast
+        store.add_deadline(Deadline("Peer review", datetime.now() + timedelta(hours=10)))
+        app.every_minute()
+        await pilot.pause()
+        latest = list(app._notifications)[-1]
+        assert latest.title == "Deadline getting close" and "Peer review" in latest.message
+        assert "Problem set" not in latest.message and latest.severity == "error"
+
+    run(store, script)

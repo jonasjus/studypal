@@ -85,7 +85,14 @@ def resolve_topic(store: Store, course: Course, ref: str | None) -> Topic | None
 def main_callback(
     ctx: typer.Context,
     demo: Annotated[bool, typer.Option("--demo", help="Use a temporary database filled with sample courses.")] = False,
+    version: Annotated[bool, typer.Option("--version", help="Show the version and where your data is kept.")] = False,
 ) -> None:
+    if version:
+        from . import __version__
+
+        console.print(f"study {__version__}")
+        console.print(f"[dim]data   {paths.db_path()}\nconfig {paths.config_path()}[/]")
+        raise typer.Exit()
     if demo:
         from . import demo as demo_mod
 
@@ -284,23 +291,17 @@ def notify(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would be sent without sending or recording it.")] = False,
 ) -> None:
     """Send any deadline notifications that are due. Made to run from cron, launchd or a systemd timer."""
-    from . import notifier
-    from .logic.notify import pending_alerts
+    from . import alerts
 
     with opened() as (store, cfg):
-        now = datetime.now()
-        codes = {c.id: c.code for c in store.list_courses()}
-        alerts = pending_alerts(store.list_deadlines(), now, cfg.thresholds, cfg.morning_time, store.sent_keys(), codes)
-        failed = 0
-        for a in alerts:
-            if dry_run:
+        if dry_run:
+            for a in alerts.due_alerts(store, cfg, datetime.now()):
                 console.print(f"Would send: {a.title} ({a.body})")
-                continue
-            if notifier.send(a.title, a.body):
-                store.mark_sent(a.deadline.id, list(a.covers), a.deadline.due_at, now)
-                console.print(f"Sent: {a.title}")
-            else:
-                failed += 1
+            return
+        result = alerts.send_due(store, cfg)
+        for a in result.sent:
+            console.print(f"Sent: {a.title}")
+        failed = len(result.failed)
     if failed:
         fail(f"{failed} notification{'s' if failed != 1 else ''} couldn't be shown. They'll be retried next run.")
 

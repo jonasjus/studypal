@@ -18,7 +18,7 @@ from .. import dashboard
 from ..dashboard import Dashboard
 from ..models import Deadline, WeakSpot
 from .actions import CourseActions, matches
-from .widgets import CourseRow, Row, VimList, WeekChart, deadline_row, empty_row, weak_row
+from .widgets import CourseRow, Row, VimList, WeekChart, DeadlineRow, empty_row, weak_row
 
 
 class OverviewScreen(CourseActions, Screen):
@@ -48,6 +48,7 @@ class OverviewScreen(CourseActions, Screen):
 
     def compose(self) -> ComposeResult:
         yield Static(id="topbar")
+        yield Static(id="banner")
         with Horizontal(id="overview"):
             with Vertical(id="left"):
                 yield VimList(id="courses", classes="pane")
@@ -65,6 +66,8 @@ class OverviewScreen(CourseActions, Screen):
         self.query_one("#week").border_title = "This week"
         await self.reload()
         self.query_one("#courses").focus()
+        # The launch toast goes on this screen, once it's showing (the overview is mounted once per run).
+        self.app.call_after_refresh(self.app.every_minute, True)
 
     async def on_screen_resume(self) -> None:
         await self.reload()
@@ -92,7 +95,7 @@ class OverviewScreen(CourseActions, Screen):
         ] or [empty_row("No subjects match the filter." if q else "No courses yet. Press a to add your first one.")])
 
         await self._fill("#deadlines", [
-            Row(deadline_row(d, dash.now, courses.get(d.course_id)), d) for d in dash.deadlines
+            Row(DeadlineRow(d, dash.now, courses.get(d.course_id)), d) for d in dash.deadlines
             if matches(q, d.title, code(d.course_id), d.kind.value)
         ] or [empty_row("No deadlines match the filter." if q else "Nothing due. Press a here to add a deadline.")])
 
@@ -118,6 +121,7 @@ class OverviewScreen(CourseActions, Screen):
             return
         for bar in self.query("#topbar").results(Static):  # nothing to update until the screen is built
             bar.update(self.app.topbar(self.dash.week_minutes))
+        self.app.show_banner(self)
 
     # ----- which course the keys act on -----
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from rich.table import Table
 from rich.text import Text
@@ -14,9 +14,12 @@ from textual.screen import ModalScreen
 from textual.theme import BUILTIN_THEMES, Theme
 from textual.widgets import Static
 
-from .. import notifier, themes
+from .. import alerts, notifier, themes
 from ..config import Config
+from ..logic.countdown import countdown
+from ..logic.notify import banner_groups, within
 from ..logic.pomodoro import PomoPhase, remaining
+from ..models import Deadline
 from ..logic.stats import format_minutes
 from ..pomo_watch import phase_message
 from ..render import accent, warning
@@ -98,7 +101,7 @@ class StudyApp(App):
     TITLE = "study"
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [
-        Binding("T", "pick_theme", "Theme"),
+        Binding("T", "pick_theme", "Theme", show=False),
         Binding("q", "quit", "Quit"),
         Binding("question_mark", "help", "Help", key_display="?"),
     ]
@@ -108,6 +111,7 @@ class StudyApp(App):
         self.store = store
         self.cfg = cfg
         self._last_phase: PomoPhase | None = None
+        self._toasted: set[tuple[int, datetime]] = set()  # deadlines already toasted this session
 
     def on_mount(self) -> None:
         self.register_theme(study_theme())
@@ -120,6 +124,7 @@ class StudyApp(App):
         self._last_phase = run.phase if run else None
         self.set_interval(1, self.tick)
         self.set_interval(30, self.refresh_everything)
+        self.set_interval(60, self.every_minute)
 
     # ----- shared by screens -----
 
@@ -195,6 +200,72 @@ class StudyApp(App):
         if week_minutes is not None:
             return Text(f"{format_minutes(sum(week_minutes))} this week", style="dim")
         return Text("")
+
+    # ----- deadline warnings -----
+
+    def _label(self, d: Deadline, now: datetime, codes: dict[int, str]) -> str:
+        code = codes.get(d.course_id) if d.course_id is not None else None
+        return f"{d.title}{f' ({code})' if code else ''} {countdown(d.due_at, now)}"
+
+    def banner(self) -> Text | None:
+        """Anything overdue or due within 24 hours. Shown on every screen until it's dealt with."""
+        now = datetime.now()
+        overdue, soon = banner_groups(self.store.list_deadlines(), now)
+        if not overdue and not soon:
+            return None
+        palette = themes.active()
+        codes = {c.id: c.code for c in self.store.list_courses()}
+        text = Text()
+        for group, heading, style in ((overdue, f"{len(overdue)} overdue", palette.error),
+                                      (soon, "Due within 24 hours", palette.warning)):
+            if not group:
+                continue
+            if text:
+                text.append("     ")
+            text.append(f"▲ {heading}: ", style=f"bold {style}")
+            names = [self._label(d, now, codes) for d in group[:3]]
+            if len(group) > 3:
+                names.append(f"and {len(group) - 3} more")
+            text.append(" · ".join(names))
+        return text
+
+    def show_banner(self, screen) -> None:
+        for widget in screen.query("#banner").results(Static):
+            text = self.banner()
+            widget.display = text is not None
+            if text is not None:
+                widget.update(text)
+
+    def toast_new_deadlines(self, launching: bool = False) -> None:
+        """A toast for deadlines that have come inside the warning window since the last one."""
+        now = datetime.now()
+        near = [d for d in within(self.store.list_deadlines(), now, self.cfg.toast_window)
+                if (d.id, d.due_at) not in self._toasted]
+        if not near:
+            return
+        self._toasted |= {(d.id, d.due_at) for d in near}
+        codes = {c.id: c.code for c in self.store.list_courses()}
+        lines = [self._label(d, now, codes) for d in near[:4]]
+        if len(near) > 4:
+            lines.append(f"and {len(near) - 4} more")
+        urgent = any(d.due_at - now <= timedelta(hours=24) for d in near)
+        self.notify("\n".join(lines), title="Coming up" if launching else "Deadline getting close",
+                    severity="error" if urgent else "warning", timeout=12)
+
+    def every_minute(self, launching: bool = False) -> None:
+        self.toast_new_deadlines(launching)
+        self.send_desktop_alerts()
+
+    def send_desktop_alerts(self) -> None:
+        """The same alerts `study notify` sends, so they arrive while the dashboard is open even without the
+        scheduled job. Runs in a thread (showing a notification can take a moment) with its own connection."""
+        path, cfg = self.store.path, self.cfg
+
+        def work() -> None:
+            with Store(path, exam_time=cfg.default_exam_time) as store:
+                alerts.send_due(store, cfg)
+
+        self.run_worker(work, thread=True, exclusive=True, group="desktop-alerts")
 
     # ----- every second -----
 
